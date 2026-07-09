@@ -7,12 +7,11 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use serde_derive::{Deserialize, Serialize};
-
 use anyhow::anyhow;
 use wgpu::util::DeviceExt;
 
 use ayagami::file;
+use ayagami::meta;
 use ayagami_render::*;
 use glam::f32::{Affine2, Mat3, Vec2, vec2};
 use log::{error, info};
@@ -67,21 +66,6 @@ impl AyagamiTestApp {
             return Err(anyhow!("model3 file not found"));
         };
 
-        #[derive(Serialize, Deserialize, Debug)]
-        #[serde(rename_all = "PascalCase")]
-        struct FileReferences {
-            moc: String,
-            textures: Vec<String>,
-            physics: Option<String>,
-            display_info: Option<String>,
-        };
-
-        #[derive(Serialize, Deserialize, Debug)]
-        #[serde(rename_all = "PascalCase")]
-        struct Model3 {
-            file_references: FileReferences,
-        }
-
         let tmp = PathBuf::from(model3.name());
         let base = tmp.parent().unwrap();
         info!(
@@ -90,7 +74,7 @@ impl AyagamiTestApp {
             base.to_string_lossy()
         );
 
-        let info: Model3 = serde_json::from_reader(model3)?;
+        let info: meta::Model3 = serde_json::from_reader(model3)?;
 
         let moc_path = base.join(info.file_references.moc);
         let mut moc = archive.by_path(&moc_path)?;
