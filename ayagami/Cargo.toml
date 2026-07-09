@@ -1,0 +1,25 @@
+[package]
+name = "ayagami"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+byteorder = "1.5.0"
+derive_more = { version = "2.1.1", features = ["debug", "display"] }
+env_logger = "0.11.10"
+glam = { version = "0.33.1", features = ["zerocopy"] }
+log = "0.4.32"
+paste = "1.0.15"
+static_assertions = "1.1.0"
+strum = { version = "0.28.0", features = ["derive"] }
+strum_macros = "0.28.0"
+thiserror = "2.0.18"
+zerocopy = { version = "0.8.52", features = ["std"] }
+zerocopy-derive = "0.8.52"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "load-model"
+path = "src/main.rs"

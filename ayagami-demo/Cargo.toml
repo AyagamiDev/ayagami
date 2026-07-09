@@ -1,0 +1,43 @@
+[package]
+name = "ayagami-demo"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.103"
+ayagami = { path = "../ayagami" }
+ayagami-render = { path = "../ayagami-render" }
+eframe = "0.35.0"
+#egui_logger = "0.10.1"
+egui_logger = { path = 'egui_logger' }
+glam = "0.33.2"
+log = "0.4.33"
+serde = "1.0.228"
+serde_derive = "1.0.228"
+serde_json = "1.0.150"
+wgpu = "29.0"
+winit = "0.30.13"
+zip = { version = "8.6.0", default-features = false, features = [
+    # "aes-crypto",
+    # "bzip2",
+    # "xz",
+    "deflate64",
+    "deflate",
+    "lzma",
+    "time",
+]}
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+env_logger = "0.11.8"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen-futures = "0.4.50"
+web-sys = "0.3.70"
+wgpu = { version = "29.0", features = ["webgl"]}
+wasm-bindgen = "0.2"
+
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "target-feature=+simd128"]
+
+[profile.release]
+opt-level = 2 # fast and small wasm

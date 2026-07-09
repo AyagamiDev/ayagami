@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Ayagami Renderer Test</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #111;
+      }
+      canvas {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+      }
+    </style>
+    <link data-trunk rel="rust" data-bin="demo_renderer" />
+    <link data-trunk rel="copy-dir" href="demo_model" />
+  </head>
+  <body>
+    <!-- The example looks the canvas up by this id. -->
+    <canvas id="canvas"></canvas>
+    <script type="module">
+      import init from "./ayagami_render.js";
+      init();
+    </script>
+  </body>
+</html>

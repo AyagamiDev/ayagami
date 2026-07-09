@@ -1,0 +1,4 @@
+Cargo.lock
+dist
+target
+/ayagami-demo/egui_logger
