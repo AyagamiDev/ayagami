@@ -517,6 +517,29 @@ impl<T: Model> Driver<T> {
             }
         }
 
+        match deformer.typed() {
+            TypedDeformer::Warp(w) => {
+                if let Some(bfms) = w.blend_form_maps() {
+                    for bfm in bfms.into_iter() {
+                        if !self.blend_param_map[bfm.param_map().uid()].clean {
+                            changed = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            TypedDeformer::Rotation(r) => {
+                if let Some(bfms) = r.blend_form_maps() {
+                    for bfm in bfms.into_iter() {
+                        if !self.blend_param_map[bfm.param_map().uid()].clean {
+                            changed = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        };
+
         if let Some(parent) = deformer.parent() {
             if self.calc_deformer(model, &*parent) {
                 changed = true;
