@@ -27,13 +27,20 @@ use eframe::{
     egui_wgpu,
 };
 
-pub struct AyagamiTestApp {
-    renderer: Arc<Mutex<ModelRenderer<file::ParsedModel, Box<file::ParsedModel>>>>,
+#[derive(Default)]
+pub struct AppState {
     transform: Affine2,
 }
 
+type ModelRenderer = ayagami_render::ModelRenderer<file::ParsedModel, Box<file::ParsedModel>>;
+
+pub struct AyagamiTestApp {
+    renderer: Arc<Mutex<ModelRenderer>>,
+    state: AppState,
+}
+
 struct RenderResources {
-    renderer: Arc<Mutex<ModelRenderer<file::ParsedModel, Box<file::ParsedModel>>>>,
+    renderer: Arc<Mutex<ModelRenderer>>,
     format: wgpu::TextureFormat,
 }
 
@@ -123,8 +130,8 @@ impl AyagamiTestApp {
             });
 
         let mut app = Self {
-            transform: Affine2::IDENTITY,
             renderer,
+            state: Default::default(),
         };
 
         if let Err(e) = app.load_startup_model() {
@@ -140,7 +147,7 @@ impl AyagamiTestApp {
         // Apply drag (2x factor because viewport is -1..1)
         let drag = response.drag_delta() / rect.size() * 2.0;
         let delta = Affine2::from_translation(vec2(drag.x, -drag.y));
-        self.transform = delta * self.transform;
+        self.state.transform = delta * self.state.transform;
 
         // Apply zoom (scroll + pinch-to-zoom)
         if response.hovered() {
@@ -153,10 +160,10 @@ impl AyagamiTestApp {
                 let cpos = Affine2::from_translation(vec2(rel_cursor.x, -rel_cursor.y));
                 let dy = r.smooth_scroll_delta().y / 200.0;
                 if dy != 0. || r.zoom_delta() != 1. {
-                    let cur = self.transform.to_scale_angle_translation().0.x;
+                    let cur = self.state.transform.to_scale_angle_translation().0.x;
                     let zoom = ((2f32).powf(dy) * r.zoom_delta()).clamp(0.05 / cur, 20. / cur);
                     let delta = Affine2::from_scale(Vec2::splat(zoom));
-                    self.transform = cpos * delta * cpos.inverse() * self.transform;
+                    self.state.transform = cpos * delta * cpos.inverse() * self.state.transform;
                 }
             });
         }
@@ -180,7 +187,7 @@ impl AyagamiTestApp {
             vec2(1., dims_px.x / dims_px.y)
         };
 
-        let transform = self.transform * Affine2::from_scale(1.8 * scale);
+        let transform = self.state.transform * Affine2::from_scale(1.8 * scale);
 
         let cb = egui_wgpu::Callback::new_paint_callback(
             rect,
