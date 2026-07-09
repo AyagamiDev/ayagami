@@ -1,6 +1,7 @@
 #![allow(unused)]
 
 use std::{
+    collections::HashMap,
     default,
     io::{self, Cursor, Read, Seek},
     iter,
@@ -30,6 +31,7 @@ use eframe::{
 #[derive(Default)]
 pub struct AppState {
     transform: Affine2,
+    param_values: HashMap<<file::ParsedModel as ayagami::core::Model>::Uid, f32>,
 }
 
 type ModelRenderer = ayagami_render::ModelRenderer<file::ParsedModel, Box<file::ParsedModel>>;
@@ -37,6 +39,8 @@ type ModelRenderer = ayagami_render::ModelRenderer<file::ParsedModel, Box<file::
 pub struct AyagamiTestApp {
     renderer: Arc<Mutex<ModelRenderer>>,
     state: AppState,
+    info: Option<meta::DisplayInfo>,
+    info_param: HashMap<String, meta::Parameter>,
 }
 
 struct RenderResources {
@@ -105,6 +109,22 @@ impl AyagamiTestApp {
         info!("Loading model into renderer...");
         self.renderer.lock().unwrap().load_model(model, &texref)?;
 
+        self.info = None;
+        self.info_param.clear();
+
+        if let Some(cdi_name) = info.file_references.display_info {
+            info!("Loading display info...");
+            let cdi_path = base.join(cdi_name);
+            let mut cdi = archive.by_path(&cdi_path)?;
+            let info: meta::DisplayInfo = serde_json::from_reader(cdi)?;
+
+            for param in info.parameters.iter() {
+                self.info_param.insert(param.id.clone(), param.clone());
+            }
+
+            self.info = Some(info);
+        }
+
         Ok(())
     }
 
@@ -132,6 +152,8 @@ impl AyagamiTestApp {
         let mut app = Self {
             renderer,
             state: Default::default(),
+            info: Default::default(),
+            info_param: Default::default(),
         };
 
         if let Err(e) = app.load_startup_model() {
@@ -201,7 +223,7 @@ impl AyagamiTestApp {
 
         ui.painter().add(cb);
     }
-    fn bar_contents(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+    fn top_bar(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
         ui.add_space(8.0);
 
@@ -221,6 +243,51 @@ impl AyagamiTestApp {
             });
         }
     }
+
+    fn parameter_group(
+        state: &mut AppState,
+        info_param: &HashMap<String, meta::Parameter>,
+        renderer: &mut ModelRenderer,
+        ui: &mut egui::Ui,
+        id: &str,
+    ) {
+        for param in renderer.params() {
+            let mut label = &param.id;
+            if let Some(info) = info_param.get(&param.id) {
+                if info.group_id != id {
+                    continue;
+                }
+                label = &info.name;
+            }
+            let value = state.param_values.entry(param.uid).or_insert(param.default);
+            if ui
+                .add(egui::Slider::new(value, param.min..=param.max).text(label))
+                .changed()
+            {
+                renderer.set_param(param.uid, *value);
+            }
+        }
+    }
+
+    fn left_panel(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let mut renderer = self.renderer.lock().unwrap();
+
+        if let Some(info) = self.info.as_ref() {
+            for group in info.parameter_groups.iter() {
+                ui.collapsing(group.name.clone(), |ui| {
+                    Self::parameter_group(
+                        &mut self.state,
+                        &self.info_param,
+                        &mut *renderer,
+                        ui,
+                        &group.id,
+                    );
+                });
+            }
+        }
+
+        Self::parameter_group(&mut self.state, &self.info_param, &mut *renderer, ui, &"");
+    }
 }
 
 impl eframe::App for AyagamiTestApp {
@@ -230,7 +297,7 @@ impl eframe::App for AyagamiTestApp {
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.visuals_mut().button_frame = false;
-                    self.bar_contents(ui, frame);
+                    self.top_bar(ui, frame);
                 });
             });
 
@@ -238,6 +305,14 @@ impl eframe::App for AyagamiTestApp {
             egui_logger::logger_ui().max_log_length(10000).show(ui);
             ui.take_available_space();
         });
+
+        egui::Panel::left("left panel")
+            .frame(egui::Frame::side_top_panel(ui.style()).inner_margin(6))
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    self.left_panel(ui, frame);
+                });
+            });
 
         ui.input_mut(|inp| {
             if let Some(f) = inp.raw.dropped_files.pop() {
