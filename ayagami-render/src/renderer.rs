@@ -831,6 +831,16 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
             self.transform = options.transform;
         }
 
+        // Check if any clip sets have an update queued, if so render() was
+        // not called which means the update might have been dropped, so
+        // do not early exit.
+        for clip_set in md.clip_sets.iter_mut() {
+            if clip_set.update_queued.get() {
+                any_changes = true;
+            }
+        }
+
+        // If truly nothing changed and clip masks are up to date, early exit
         if !any_changes {
             return false;
         }
