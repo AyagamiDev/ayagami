@@ -11,8 +11,11 @@ use std::{
 use anyhow::anyhow;
 use wgpu::util::DeviceExt;
 
-use ayagami::file;
 use ayagami::meta;
+use ayagami::{
+    core::{Model, Param},
+    file,
+};
 use ayagami_render::*;
 use glam::f32::{Affine2, Mat3, Vec2, vec2};
 use log::{error, info};
@@ -41,6 +44,7 @@ pub struct AyagamiTestApp {
     state: AppState,
     info: Option<meta::DisplayInfo>,
     info_param: HashMap<String, meta::Parameter>,
+    kp_param: HashMap<String, Vec<f32>>,
 }
 
 struct RenderResources {
@@ -93,6 +97,14 @@ impl AyagamiTestApp {
         info!("Loading model {}...", moc_path.to_string_lossy());
         let model = Box::new(file::ParsedModel::load(&mut moc)?);
         drop(moc);
+
+        self.kp_param.clear();
+        for param in model.params().into_iter() {
+            if let Some(kp) = param.keypoints() {
+                let kps: Vec<f32> = kp.iter().cloned().collect();
+                self.kp_param.insert(param.id().to_owned(), kps);
+            }
+        }
 
         info!("Loading texture files...");
         let mut texdata: Vec<Vec<u8>> = Vec::new();
@@ -154,6 +166,7 @@ impl AyagamiTestApp {
             state: Default::default(),
             info: Default::default(),
             info_param: Default::default(),
+            kp_param: Default::default(),
         };
 
         if let Err(e) = app.load_startup_model() {
@@ -247,6 +260,7 @@ impl AyagamiTestApp {
     fn parameter_group(
         state: &mut AppState,
         info_param: &HashMap<String, meta::Parameter>,
+        kp_param: &HashMap<String, Vec<f32>>,
         renderer: &mut ModelRenderer,
         ui: &mut egui::Ui,
         id: &str,
@@ -260,12 +274,32 @@ impl AyagamiTestApp {
                 label = &info.name;
             }
             let value = state.param_values.entry(param.uid).or_insert(param.default);
-            if ui
-                .add(egui::Slider::new(value, param.min..=param.max).text(label))
-                .changed()
-            {
-                renderer.set_param(param.uid, *value);
-            }
+            ui.horizontal(|ui| {
+                if ui.button("🔄").clicked() {
+                    *value = param.default;
+                    renderer.set_param(param.uid, param.default);
+                }
+                let res = ui.add(egui::Slider::new(value, param.min..=param.max).text(label));
+                if res.changed() {
+                    if res.ctx.input(|input| input.modifiers.shift) {
+                        if let Some(closest) = kp_param
+                            .get(&param.id)
+                            .map(|v| {
+                                v.iter().min_by(|a, b| {
+                                    (*a - *value)
+                                        .abs()
+                                        .partial_cmp(&(*b - *value).abs())
+                                        .unwrap()
+                                })
+                            })
+                            .flatten()
+                        {
+                            *value = *closest;
+                        }
+                    }
+                    renderer.set_param(param.uid, *value);
+                }
+            });
         }
     }
 
@@ -278,6 +312,7 @@ impl AyagamiTestApp {
                     Self::parameter_group(
                         &mut self.state,
                         &self.info_param,
+                        &self.kp_param,
                         &mut *renderer,
                         ui,
                         &group.id,
@@ -286,7 +321,14 @@ impl AyagamiTestApp {
             }
         }
 
-        Self::parameter_group(&mut self.state, &self.info_param, &mut *renderer, ui, &"");
+        Self::parameter_group(
+            &mut self.state,
+            &self.info_param,
+            &self.kp_param,
+            &mut *renderer,
+            ui,
+            &"",
+        );
     }
 }
 
