@@ -13,14 +13,10 @@ egui_logger = { path = 'egui_logger' }
 glam = "0.33.2"
 log = "0.4.33"
 serde = "1.0.228"
-serde_derive = "1.0.228"
 serde_json = "1.0.150"
 wgpu = "29.0"
 winit = "0.30.13"
 zip = { version = "8.6.0", default-features = false, features = [
-    # "aes-crypto",
-    # "bzip2",
-    # "xz",
     "deflate64",
     "deflate",
     "lzma",
