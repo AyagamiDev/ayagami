@@ -617,10 +617,6 @@ impl core::Model for ParsedModel {
         ItemCollection::new(self, 0, self.glue.count as u32)
     }
 
-    // fn part_forms(&self) -> impl core::Collection<'_, Self::PartForm<'_>> {
-    //     TestColl(PhantomData)
-    // }
-
     fn index_buffer(&self) -> Option<&[u16]> {
         Some(&self.vertex_index.values)
     }
