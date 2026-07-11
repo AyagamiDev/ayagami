@@ -348,13 +348,15 @@ impl eframe::App for AyagamiTestApp {
             ui.take_available_space();
         });
 
-        egui::Panel::left("left panel")
-            .frame(egui::Frame::side_top_panel(ui.style()).inner_margin(6))
-            .show(ui, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    self.left_panel(ui, frame);
+        if self.renderer.lock().unwrap().is_loaded() {
+            egui::Panel::left("left panel")
+                .frame(egui::Frame::side_top_panel(ui.style()).inner_margin(6))
+                .show(ui, |ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        self.left_panel(ui, frame);
+                    });
                 });
-            });
+        }
 
         ui.input_mut(|inp| {
             if let Some(f) = inp.raw.dropped_files.pop() {

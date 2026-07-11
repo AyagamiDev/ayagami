@@ -743,6 +743,9 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
     }
 
     pub fn params(&self) -> Vec<ParamInfo<T>> {
+        if self.model.is_none() {
+            return Vec::new();
+        }
         let mref = self.model.as_ref().unwrap().model.as_ref();
         let mut params = Vec::new();
         for p in mref.params() {
