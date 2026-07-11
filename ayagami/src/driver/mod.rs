@@ -65,7 +65,7 @@ impl<T: Model, V: Default> ItemState<T, V> {
     fn clear(&mut self) {
         self.0.visit_mut(|vec| vec.clear(), |map| map.clear())
     }
-    fn contains_key(&self, k: T::Uid) -> bool {
+    fn key_valid(&self, k: T::Uid) -> bool {
         self.0.visit(
             |vec| k.try_into().unwrap() < vec.len(),
             |map| map.contains_key(&k),
@@ -442,7 +442,7 @@ impl<T: Model> Driver<T> {
     }
 
     pub fn set_param(&mut self, uid: T::Uid, value: f32) -> Result<(), ParamError> {
-        if !self.param.contains_key(uid) {
+        if !self.param.key_valid(uid) {
             return Err(ParamError::ParameterNotFound(format!("#{}", uid)));
         }
 
