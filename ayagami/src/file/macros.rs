@@ -405,8 +405,9 @@ macro_rules! declare_object {
                 type View<'a> = [<$obj View>]<'a>;
             }
 
-            #[derive(Clone)]
+            #[derive(Clone, derive_more::Debug)]
             pub struct [<$obj View>]<'model> {
+                #[debug(skip)]
                 pub(crate) model: &'model Model,
                 pub(crate) idx: u32,
                 pub(crate) parent: Option<u32>,

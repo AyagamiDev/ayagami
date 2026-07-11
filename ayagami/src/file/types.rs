@@ -5,6 +5,7 @@ use byteorder::LittleEndian;
 use byteorder::ReadBytesExt;
 use log::{debug, info, warn};
 use paste::paste;
+use std::fmt::Debug;
 use std::io::Read;
 use std::marker::PhantomData;
 use std::ops::Deref;
@@ -56,6 +57,7 @@ pub struct U32Pair(u32, u32);
 
 pub(crate) mod private {
     use super::super::classes::ParsedModel;
+    use std::fmt::Debug;
 
     pub trait Object: RawObject {
         type View<'a>: View<'a>;
@@ -84,7 +86,7 @@ pub(crate) mod private {
         }
     }
 
-    pub trait View<'model>: Sized {
+    pub trait View<'model>: Sized + Debug {
         type Object: super::Object;
 
         fn get(model: &'model ParsedModel, idx: <Self::Object as RawObject>::Idx) -> Option<Self>;
@@ -124,15 +126,16 @@ impl From<Bool32> for bool {
     }
 }
 
-pub struct ViewRef<'a, T>(pub(crate) T, pub(crate) PhantomData<&'a T>);
+#[derive(derive_more::Debug)]
+pub struct ViewRef<'a, T: Debug>(pub(crate) T, #[debug(skip)] pub(crate) PhantomData<&'a T>);
 
-impl<'a, T> ViewRef<'a, T> {
+impl<'a, T: std::fmt::Debug> ViewRef<'a, T> {
     pub(crate) fn new(v: T) -> Self {
         Self(v, PhantomData)
     }
 }
 
-impl<'a, T> Deref for ViewRef<'a, T> {
+impl<'a, T: Debug> Deref for ViewRef<'a, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -140,7 +143,8 @@ impl<'a, T> Deref for ViewRef<'a, T> {
     }
 }
 
-pub struct ItemCollection<'a, T> {
+#[derive(Debug)]
+pub struct ItemCollection<'a, T: Debug> {
     pub(crate) model: &'a ParsedModel,
     pub(crate) start: u32,
     pub(crate) limit: u32,

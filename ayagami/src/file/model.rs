@@ -432,6 +432,7 @@ impl<'model> core::GlueForm<'model> for GlueFormView<'model> {
 
 macro_rules! blend_form_map_view {
     ($t:ident, $f:ident) => {
+        #[derive(Debug)]
         pub struct $t<'model>(BlendFormMapView<'model>, u32);
         impl<'model> core::BlendFormMap<'model> for $t<'model> {
             type Form = <super::classes::$f as Object>::View<'model>;
