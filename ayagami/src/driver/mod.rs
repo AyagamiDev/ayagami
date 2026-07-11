@@ -17,6 +17,11 @@ use glam::{
     vec2,
 };
 
+// Depth is floor()ed to int. When interpolating between identical integer values,
+// the result can be slightly smaller due to rounding error. This fudge ensures
+// that the depth rounds to the correct integer. Value seems to match VTS behavior.
+const DEPTH_FUDGE: f32 = 0.001;
+
 type ItemStateMap<T, V> =
     UidCollection<<T as Model>::UidType, Vec<V>, HashMap<<T as Model>::Uid, V>>;
 struct ItemState<T: Model, V: Default>(ItemStateMap<T, V>);
@@ -113,7 +118,7 @@ struct ArtMeshState {
     initialized: bool,
     updated: bool,
     visual: Visual,
-    depth: f32,
+    depth: i32,
     #[debug("vertices: [{}..{}, {} verts]",
         vertices.iter().copied().reduce(Vec2::min).unwrap(),
         vertices.iter().copied().reduce(Vec2::max).unwrap(),
@@ -348,7 +353,7 @@ struct PartState {
     initialized: bool,
     visible_artmeshes: bool,
     visible_deformers: bool,
-    depth: f32,
+    depth: i32,
     clean: bool,
     updated: bool,
 }
@@ -383,13 +388,13 @@ pub struct DrivenArtMesh<'a> {
     pub updated: bool,
     pub visual: Visual,
     pub vertices: &'a [Coord],
-    pub depth: f32,
+    pub depth: i32,
 }
 
 #[derive(Default, Debug)]
 pub struct DrivenPart {
     pub updated: bool,
-    pub depth: f32,
+    pub depth: i32,
 }
 
 #[derive(Error, Debug)]
@@ -769,7 +774,7 @@ impl<T: Model> Driver<T> {
                 initialized: true,
                 visible_artmeshes: part.visible_artmeshes(),
                 visible_deformers: part.visible_deformers(),
-                depth: f32::NAN,
+                depth: i32::MIN,
                 clean: true,
                 updated: true,
             };
@@ -819,11 +824,11 @@ impl<T: Model> Driver<T> {
             part.blend_form_maps(),
         ) {
             let values: Vec<f32> = forms.into_iter().map(|f| f.depth()).collect();
-            blend(&values, &weights).clamp(0., 1000.)
+            (blend(&values, &weights).clamp(0., 1000.) + DEPTH_FUDGE) as i32
         } else {
             // Out of range, depth = 0.
             info!("Part #{} {}: Out of range", part.uid(), part.id());
-            0.
+            0
         };
 
         let st = self.part.get_mut(part.uid());
@@ -964,7 +969,7 @@ impl<T: Model> Driver<T> {
             let mut changed = !st.initialized;
             st.updated = false;
             st.initialized = true;
-            let old_depth = if !st.initialized { f32::NAN } else { st.depth };
+            let old_depth = if !st.initialized { i32::MIN } else { st.depth };
 
             if let Some(deformer) = artmesh.deformer() {
                 let deformer_changed = self.calc_deformer(model, &*deformer);
@@ -1031,7 +1036,7 @@ impl<T: Model> Driver<T> {
                 pst.apply(&mut vertices, &mut visual);
             }
 
-            let depth = form.depth.clamp(0., 1000.);
+            let depth = (form.depth.clamp(0., 1000.) + DEPTH_FUDGE) as i32;
             if depth != old_depth {
                 self.order_changed = true;
             }
@@ -1156,13 +1161,11 @@ impl<T: Model> Driver<T> {
     }
 
     fn collect_drawgroup(&self, group: &T::DrawGroup<'_>, v: &mut Vec<T::Uid>) {
-        let item_depth = |it: &DrawItem<T>| match it {
-            DrawItem::ArtMesh(am) => &self.artmesh[am.uid()].depth,
-            DrawItem::Part(part_item) => &self.part[part_item.part.uid()].depth,
-        };
-
         let mut items: Vec<_> = group.items().into_iter().collect();
-        items.sort_by(|a, b| f32::total_cmp(item_depth(a), item_depth(b)));
+        items.sort_by_key(|it| match it {
+            DrawItem::ArtMesh(am) => self.artmesh[am.uid()].depth as u32,
+            DrawItem::Part(part_item) => self.part[part_item.part.uid()].depth as u32,
+        });
         items.into_iter().for_each(|it| match it {
             DrawItem::ArtMesh(am) => v.push(am.uid()),
             DrawItem::Part(part_item) => self.collect_drawgroup(&*part_item.draw_group, v),
