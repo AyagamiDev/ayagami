@@ -5,15 +5,16 @@ use deformer::*;
 use derive_more;
 use log::{debug, info, trace, warn};
 use std::{
+    cell::Cell,
     collections::HashMap,
     ops::{Deref, Index},
 };
 use thiserror::Error;
 
 use glam::{
+    FloatExt, USizeVec2,
     f32::{Affine2, Mat2, Vec2, Vec3},
-    u32::UVec2,
-    uvec2, vec2,
+    vec2,
 };
 
 type ItemStateMap<T, V> =
@@ -127,7 +128,7 @@ struct ArtMeshState {
 #[derive(Default, derive_more::Debug, Clone)]
 struct WarpState {
     visual: Visual,
-    size: (u32, u32),
+    size: USizeVec2,
     bilinear: bool,
     #[debug("vertices: [{}..{}, {} verts]",
         vertices.iter().copied().reduce(Vec2::min).unwrap(),
@@ -136,6 +137,7 @@ struct WarpState {
     )]
     vertices: Vec<Coord>,
     scale: f32,
+    affine: Cell<Option<Affine2>>,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -178,43 +180,121 @@ impl RotState {
 }
 
 impl WarpState {
+    fn get_affine(&self) -> Affine2 {
+        if let Some(aff) = self.affine.get() {
+            return aff;
+        }
+        // Four corners
+        let p00 = self.point(USizeVec2::ZERO);
+        let p01 = self.point(self.size * USizeVec2::X);
+        let p10 = self.point(self.size * USizeVec2::Y);
+        let p11 = self.point(self.size);
+        // Compute "average" affine transform
+        let pc = (p00 + p01 + p10 + p11) / 4.0;
+        let dx = (p01 - p00 + p11 - p10) / 2.0;
+        let dy = (p10 - p00 + p11 - p01) / 2.0;
+        let aff = Affine2 {
+            matrix2: Mat2::from_cols(dx, dy),
+            translation: pc,
+        };
+        // Center of the deformer is input coord (0.5, 0.5)
+        let aff = aff * Affine2::from_translation(Vec2::splat(-0.5));
+        self.affine.set(Some(aff));
+        aff
+    }
+    fn point(&self, pt: USizeVec2) -> Vec2 {
+        assert!(pt.x <= self.size.x);
+        assert!(pt.y <= self.size.y);
+        let row = self.size.x + 1;
+        self.vertices[row * pt.y + pt.x]
+    }
+    fn extrap_point(&self, pt: USizeVec2) -> Vec2 {
+        if pt.min_element() >= 1 && pt.x <= (self.size.x + 1) && pt.y <= (self.size.y + 1) {
+            return self.point(pt - 1);
+        }
+
+        let ix = if pt.x == 0 {
+            -2.
+        } else if pt.x > (self.size.x + 1) {
+            3.
+        } else {
+            (pt.x - 1) as f32 / self.size.x as f32
+        };
+
+        let iy = if pt.y == 0 {
+            -2.
+        } else if pt.y > (self.size.y + 1) {
+            3.
+        } else {
+            (pt.y - 1) as f32 / self.size.y as f32
+        };
+
+        self.get_affine().transform_point2(vec2(ix, iy))
+    }
     fn apply(&self, coords: &mut [Coord], visual: &mut Visual) {
         trace!(
             "Apply Warp {}x{} ({}): {} vertices",
-            self.size.0,
-            self.size.1,
+            self.size.x,
+            self.size.y,
             self.vertices.len(),
             coords.len()
         );
 
-        let size = uvec2(self.size.0, self.size.1);
-        let fsize = size.as_vec2();
+        let fsize = self.size.as_vec2();
 
         coords.iter_mut().for_each(|c| {
-            // TODO: extrapolation
-            if c.saturate() != *c {
-                trace!("Missing extrapolation... {:?}", c);
-            }
-            let rpos = *c * fsize;
-            let ipos = rpos.as_uvec2().clamp(UVec2::ZERO, size - 1).as_usizevec2();
-            let fpos = rpos - ipos.as_vec2();
-            //println!("rpos={:?} ipos={:?}, fpos={:?}", rpos, ipos, fpos);
-            let row = (self.size.0 + 1) as usize;
-            let off = ipos.x + ipos.y * row;
-            let p00 = self.vertices[off];
-            let p01 = self.vertices[off + 1];
-            let p10 = self.vertices[off + row];
-            let p11 = self.vertices[off + row + 1];
-            if self.bilinear {
-                let p0 = p00.lerp(p01, fpos.x);
-                let p1 = p10.lerp(p11, fpos.x);
-                *c = p0.lerp(p1, fpos.y);
-            } else {
+            if c.min_element() < 0. || c.max_element() > 1. {
+                let aff = self.get_affine();
+                if c.min_element() <= -2.0 || c.max_element() >= 3.0 {
+                    // Out of expanded warp area, apply affine transform and return
+                    *c = aff.transform_point2(*c);
+                    return;
+                }
+                let mut rpos = *c * fsize;
+                if rpos.x < 0. {
+                    rpos.x = c.x / 2.;
+                } else if rpos.x > fsize.x {
+                    rpos.x = (c.x - 1.) / 2. + fsize.x;
+                }
+                if rpos.y < 0. {
+                    rpos.y = c.y / 2.;
+                } else if rpos.y >= fsize.y {
+                    rpos.y = (c.y - 1.) / 2. + fsize.y;
+                }
+                let rpos = rpos + 1.;
+                let ipos = rpos.as_usizevec2().clamp(USizeVec2::ZERO, self.size + 1);
+                let fpos = rpos - ipos.as_vec2();
+                assert!(fpos.min_element() >= 0. && fpos.max_element() <= 1.);
+                let p00 = self.extrap_point(ipos);
+                let p01 = self.extrap_point(ipos + USizeVec2::X);
+                let p10 = self.extrap_point(ipos + USizeVec2::Y);
+                let p11 = self.extrap_point(ipos + USizeVec2::ONE);
                 if (fpos.x + fpos.y) < 1. {
                     *c = (1. - (fpos.x + fpos.y)) * p00 + fpos.x * p01 + fpos.y * p10;
                 } else {
-                    let rpos = vec2(1., 1.) - fpos;
-                    *c = (1. - (rpos.x + rpos.y)) * p11 + fpos.x * p10 + fpos.y * p01;
+                    let fpos = vec2(1., 1.) - fpos;
+                    *c = (1. - (fpos.x + fpos.y)) * p11 + fpos.x * p10 + fpos.y * p01;
+                }
+            } else {
+                let rpos = *c * fsize;
+                let ipos = rpos.as_usizevec2().clamp(USizeVec2::ZERO, self.size - 1);
+                let fpos = rpos - ipos.as_vec2();
+                //println!("rpos={:?} ipos={:?}, fpos={:?}", rpos, ipos, fpos);
+                let p00 = self.point(ipos);
+                let p01 = self.point(ipos + USizeVec2::X);
+                let p10 = self.point(ipos + USizeVec2::Y);
+                let p11 = self.point(ipos + USizeVec2::ONE);
+                if self.bilinear {
+                    let p0 = p00.lerp(p01, fpos.x);
+                    let p1 = p10.lerp(p11, fpos.x);
+                    *c = p0.lerp(p1, fpos.y);
+                } else {
+                    if (fpos.x + fpos.y) < 1. {
+                        *c = (1. - (fpos.x + fpos.y)) * p00 + fpos.x * p01 + fpos.y * p10;
+                    } else {
+                        let fpos = vec2(1., 1.) - fpos;
+                        *c = (1. - (fpos.x + fpos.y)) * p11 + fpos.x * p10 + fpos.y * p01;
+                    }
                 }
             }
         });
@@ -481,10 +561,11 @@ impl<T: Model> Driver<T> {
 
         let mut st = WarpState {
             vertices,
-            size: warp.size(),
+            size: warp.size().as_usizevec2(),
             bilinear: warp.bilinear_interpolation(),
             scale: 1.0,
             visual: form.visual.into(),
+            affine: None.into(),
         };
         st.visual.visible = deformer.visible();
 

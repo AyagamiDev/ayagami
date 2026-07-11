@@ -5,7 +5,7 @@ use std::hash::Hash;
 use std::ops::{Deref, Index, Range};
 
 pub use super::file::classes::{BlendMode, DeformerType, ParamSnapType};
-use glam::f32::Vec2;
+use glam::{f32::Vec2, u32::UVec2};
 
 pub type Coord = Vec2;
 pub type Color = [f32; 3];
@@ -108,10 +108,10 @@ where
     fn param_maps(&self) -> itm!(ParamMap);
     fn forms(&self) -> ita!(Self::Form);
     fn form(&self, index: &[u32]) -> Option<p!(Form)>;
-    fn size(&self) -> (u32, u32);
+    fn size(&self) -> UVec2;
     fn vertex_count(&self) -> usize {
-        let (w, h) = self.size();
-        (w as usize + 1) * (h as usize + 1)
+        let s = self.size().as_usizevec2();
+        (s + 1).element_product()
     }
     fn bilinear_interpolation(&self) -> bool;
     fn blend_form_maps(

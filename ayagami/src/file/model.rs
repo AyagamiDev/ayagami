@@ -10,7 +10,7 @@ use crate::{
     file::types::*,
 };
 use core::Collection;
-use glam::f32::vec2;
+use glam::{f32::vec2, u32::{UVec2, uvec2}};
 use paste::paste;
 use private::*;
 
@@ -206,8 +206,8 @@ impl<'model> core::WarpDeformer<'model> for WarpDeformerView<'model> {
     child_collection!(forms, Self::Form, forms_views);
     special!(blend_form_maps, WarpBlendFormMapView);
 
-    fn size(&self) -> (u32, u32) {
-        (*self.f_x_divs(), *self.f_y_divs())
+    fn size(&self) -> UVec2 {
+        uvec2(*self.f_x_divs(), *self.f_y_divs())
     }
 
     by_value!(bilinear_interpolation, bool);
