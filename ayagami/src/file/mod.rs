@@ -1,8 +1,8 @@
-pub(crate) mod types;
+pub mod types;
 #[macro_use]
 pub(crate) mod macros;
-pub(crate) mod classes;
-pub(crate) mod model;
+pub mod classes;
+pub mod model;
 pub(crate) mod parse;
 
 pub use classes::ParsedModel;

@@ -816,7 +816,7 @@ impl<T: Model> Driver<T> {
             };
 
             if !changed {
-                for pm in artmesh.param_maps().into_iter() {
+                for pm in artmesh.param_maps() {
                     let pm_state = &self.param_map[pm.uid()];
                     if !pm_state.clean {
                         changed = true;
@@ -865,10 +865,7 @@ impl<T: Model> Driver<T> {
             let mut visual: Visual = form.visual.into();
             visual.visible = artmesh.visible();
 
-            if let Some(deformer) = artmesh.deformer() {
-                self.calc_deformer(model, &*deformer);
-                let uid = deformer.uid();
-                drop(deformer);
+            if let Some(uid) = artmesh.deformer().map(|d| d.uid()) {
                 let pst = &self.deformer[uid];
                 pst.apply(&mut vertices, &mut visual);
             }

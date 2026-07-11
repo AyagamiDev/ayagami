@@ -10,7 +10,10 @@ use crate::{
     file::types::*,
 };
 use core::Collection;
-use glam::{f32::vec2, u32::{UVec2, uvec2}};
+use glam::{
+    f32::vec2,
+    u32::{UVec2, uvec2},
+};
 use paste::paste;
 use private::*;
 
@@ -55,13 +58,10 @@ macro_rules! special {
         fn param_maps(
             &self,
         ) -> impl IntoIterator<Item = impl Deref<Target = ParamMapView<'model>>> {
-            let pms = self.param_map_set_view();
-            let mut x: Vec<_> = pms
+            self.param_map_set_view()
                 .refs_views()
                 .into_iter()
                 .map(|i| i.map_view().into_ref())
-                .collect();
-            x
         }
     };
     ( blend_form_maps, $t:ident ) => {
