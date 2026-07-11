@@ -349,6 +349,7 @@ pub struct Driver<T: Model> {
     blend_limit: ItemState<T, BlendLimitState>,
     deformer: ItemState<T, DeformerState>,
     artmesh: ItemState<T, ArtMeshState>,
+    perftest_mode: bool,
 }
 
 #[derive(Default)]
@@ -389,6 +390,7 @@ impl<T: Model> Driver<T> {
             blend_limit: Default::default(),
             deformer: Default::default(),
             artmesh: Default::default(),
+            perftest_mode: false,
         }
     }
 
@@ -705,7 +707,9 @@ impl<T: Model> Driver<T> {
     pub fn drive(&mut self, model: &T) {
         for param in model.params() {
             let pstate = self.param.lookup(param.uid());
-            //pstate.clean = false;
+            if self.perftest_mode {
+                pstate.clean = false;
+            }
             if !pstate.clean {
                 let value = pstate.value.min(param.max()).max(param.min());
                 pstate.value = value;
@@ -801,20 +805,22 @@ impl<T: Model> Driver<T> {
             st.updated = false;
         }
 
-        for a in model.artmeshes() {
-            self.artmesh.lookup(a.uid()).updated = false;
+        if self.perftest_mode {
+            for deformer in model.deformers() {
+                self.calc_deformer(model, &deformer);
+            }
         }
 
-        /*for deformer in model.deformers() {
-            self.calc_deformer(model, &deformer);
-        }*/
-
         for artmesh in model.artmeshes() {
-            let mut changed = if let Some(deformer) = artmesh.deformer() {
-                self.calc_deformer(model, &*deformer)
-            } else {
-                false
-            };
+            let mut changed = !self.artmesh.contains_key(artmesh.uid());
+            if !changed {
+                self.artmesh.lookup(artmesh.uid()).updated = false;
+            }
+
+            if let Some(deformer) = artmesh.deformer() {
+                let deformer_changed = self.calc_deformer(model, &*deformer);
+                changed = changed || deformer_changed;
+            }
 
             if !changed {
                 for pm in artmesh.param_maps() {
