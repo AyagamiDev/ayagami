@@ -110,8 +110,10 @@ impl From<VisualVals> for Visual {
 
 #[derive(Default, derive_more::Debug)]
 struct ArtMeshState {
+    initialized: bool,
     updated: bool,
     visual: Visual,
+    depth: f32,
     #[debug("vertices: [{}..{}, {} verts]",
         vertices.iter().copied().reduce(Vec2::min).unwrap(),
         vertices.iter().copied().reduce(Vec2::max).unwrap(),
@@ -341,6 +343,27 @@ struct BlendLimitState {
     weight: f32,
 }
 
+#[derive(Default, Debug)]
+struct PartState {
+    initialized: bool,
+    visible_artmeshes: bool,
+    visible_deformers: bool,
+    depth: f32,
+    clean: bool,
+    updated: bool,
+}
+
+impl PartState {
+    fn apply(&self, other: &mut PartState) {
+        if !self.visible_artmeshes {
+            other.visible_artmeshes = false;
+        }
+        if !self.visible_deformers {
+            other.visible_deformers = false;
+        }
+    }
+}
+
 pub struct Driver<T: Model> {
     param_uids: HashMap<String, T::Uid>,
     param: ItemState<T, ParamState>,
@@ -349,14 +372,24 @@ pub struct Driver<T: Model> {
     blend_limit: ItemState<T, BlendLimitState>,
     deformer: ItemState<T, DeformerState>,
     artmesh: ItemState<T, ArtMeshState>,
+    sorted_artmeshes: Vec<T::Uid>,
+    part: ItemState<T, PartState>,
+    order_changed: bool,
     perftest_mode: bool,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct DrivenArtMesh<'a> {
     pub updated: bool,
     pub visual: Visual,
     pub vertices: &'a [Coord],
+    pub depth: f32,
+}
+
+#[derive(Default, Debug)]
+pub struct DrivenPart {
+    pub updated: bool,
+    pub depth: f32,
 }
 
 #[derive(Error, Debug)]
@@ -390,6 +423,9 @@ impl<T: Model> Driver<T> {
             blend_limit: Default::default(),
             deformer: Default::default(),
             artmesh: Default::default(),
+            part: Default::default(),
+            sorted_artmeshes: Default::default(),
+            order_changed: true,
             perftest_mode: false,
         }
     }
@@ -492,6 +528,7 @@ impl<T: Model> Driver<T> {
         model: &'model T,
         deformer: &T::Deformer<'model>,
         rot: <T::Deformer<'model> as Deformer<'model>>::RotationRef<'model>,
+        visible: bool,
     ) -> RotState {
         let Some((forms, weights)) =
             self.get_form_set(model, rot.param_maps(), rot.forms(), rot.blend_form_maps())
@@ -521,7 +558,7 @@ impl<T: Model> Driver<T> {
             visual: form.visual.into(),
             scale: form.scale,
         };
-        st.visual.visible = deformer.visible();
+        st.visual.visible = deformer.visible() && visible;
 
         if let Some(parent) = deformer.parent() {
             let uid = parent.uid();
@@ -560,6 +597,7 @@ impl<T: Model> Driver<T> {
         model: &'model T,
         deformer: &T::Deformer<'model>,
         warp: <T::Deformer<'model> as Deformer<'model>>::WarpRef<'model>,
+        visible: bool,
     ) -> WarpState {
         let Some((forms, weights)) = self.get_form_set(
             model,
@@ -589,7 +627,7 @@ impl<T: Model> Driver<T> {
             visual: form.visual.into(),
             affine: None.into(),
         };
-        st.visual.visible = deformer.visible();
+        st.visual.visible = deformer.visible() && visible;
 
         if let Some(parent) = deformer.parent() {
             let uid = parent.uid();
@@ -604,10 +642,10 @@ impl<T: Model> Driver<T> {
 
     fn calc_deformer<'a>(&mut self, model: &'a T, deformer: &T::Deformer<'a>) -> bool {
         let st = self.deformer.lookup(deformer.uid());
-
         if st.clean {
             return st.updated;
         }
+
         st.clean = true;
 
         let mut changed = !st.sub.is_some();
@@ -660,7 +698,14 @@ impl<T: Model> Driver<T> {
             }
         }
 
-        if !changed {
+        let mut visible = true;
+        if let Some(part) = deformer.part() {
+            if !self.calc_part(model, &*part).visible_artmeshes {
+                visible = false;
+            }
+        }
+
+        if !changed && !self.perftest_mode {
             return false;
         }
 
@@ -675,8 +720,12 @@ impl<T: Model> Driver<T> {
         );
 
         let new_state = match deformer.typed() {
-            TypedDeformer::Warp(w) => DeformerSubState::Warp(self.calc_warp(model, deformer, w)),
-            TypedDeformer::Rotation(r) => DeformerSubState::Rot(self.calc_rot(model, deformer, r)),
+            TypedDeformer::Warp(w) => {
+                DeformerSubState::Warp(self.calc_warp(model, deformer, w, visible))
+            }
+            TypedDeformer::Rotation(r) => {
+                DeformerSubState::Rot(self.calc_rot(model, deformer, r, visible))
+            }
         };
 
         trace!(
@@ -697,14 +746,104 @@ impl<T: Model> Driver<T> {
     pub fn deformer_tree_changed(&mut self) {
         self.deformer.clear();
         self.artmesh.clear();
+        self.part.clear();
     }
 
     pub fn part_tree_changed(&mut self) {
         self.deformer.clear();
         self.artmesh.clear();
+        self.part.clear();
+    }
+
+    fn calc_part<'a>(&mut self, model: &'a T, part: &T::Part<'a>) -> &PartState {
+        let st = self.part.lookup(part.uid());
+        if st.clean {
+            return &self.part[part.uid()];
+        }
+        st.clean = true;
+
+        let mut changed = false;
+
+        if !st.initialized {
+            let mut st = PartState {
+                initialized: true,
+                visible_artmeshes: part.visible_artmeshes(),
+                visible_deformers: part.visible_deformers(),
+                depth: f32::NAN,
+                clean: true,
+                updated: true,
+            };
+            if let Some(parent) = part.parent() {
+                let pst = self.calc_part(model, &*parent);
+                pst.apply(&mut st);
+            }
+            changed = true;
+            self.part.insert(part.uid(), st);
+        }
+
+        for pm in part.param_maps().into_iter() {
+            let pm_state = &self.param_map[pm.uid()];
+            if !pm_state.clean {
+                changed = true;
+                break;
+            }
+        }
+
+        if !changed {
+            'bfm: for bfm in part.blend_form_maps().into_iter().flatten() {
+                if !self.blend_param_map[bfm.param_map().uid()].clean {
+                    changed = true;
+                    break;
+                }
+                for l in bfm.limits() {
+                    if self.blend_limit[l.uid()].updated {
+                        changed = true;
+                        break 'bfm;
+                    }
+                }
+                changed = true;
+                break;
+            }
+        }
+
+        if !changed && !self.perftest_mode {
+            return &self.part[part.uid()];
+        }
+
+        trace!(">> Update part #{} {}", part.uid(), part.id());
+
+        let depth = if let Some((forms, weights)) = self.get_form_set(
+            model,
+            part.param_maps(),
+            part.forms(),
+            part.blend_form_maps(),
+        ) {
+            let values: Vec<f32> = forms.into_iter().map(|f| f.depth()).collect();
+            blend(&values, &weights).clamp(0., 1000.)
+        } else {
+            // Out of range, depth = 0.
+            info!("Part #{} {}: Out of range", part.uid(), part.id());
+            0.
+        };
+
+        let st = self.part.get_mut(part.uid());
+
+        if depth != st.depth {
+            st.depth = depth;
+            st.updated = true;
+            self.order_changed = true;
+        } else {
+            st.updated = false;
+        }
+
+        trace!("<< Updated part #{} {}: {:?}", part.uid(), part.id(), st);
+
+        return st;
     }
 
     pub fn drive(&mut self, model: &T) {
+        self.order_changed = false;
+
         for param in model.params() {
             let pstate = self.param.lookup(param.uid());
             if self.perftest_mode {
@@ -805,21 +944,36 @@ impl<T: Model> Driver<T> {
             st.updated = false;
         }
 
+        for p in model.parts() {
+            let st = self.part.lookup(p.uid());
+            st.clean = false;
+            st.updated = false;
+        }
+
         if self.perftest_mode {
+            for part in model.parts() {
+                self.calc_part(model, &part);
+            }
             for deformer in model.deformers() {
                 self.calc_deformer(model, &deformer);
             }
         }
 
         for artmesh in model.artmeshes() {
-            let mut changed = !self.artmesh.contains_key(artmesh.uid());
-            if !changed {
-                self.artmesh.lookup(artmesh.uid()).updated = false;
-            }
+            let st = self.artmesh.lookup(artmesh.uid());
+            let mut changed = !st.initialized;
+            st.updated = false;
+            st.initialized = true;
+            let old_depth = if !st.initialized { f32::NAN } else { st.depth };
 
             if let Some(deformer) = artmesh.deformer() {
                 let deformer_changed = self.calc_deformer(model, &*deformer);
                 changed = changed || deformer_changed;
+            }
+
+            let mut visible = true;
+            if let Some(part) = artmesh.part() {
+                visible = self.calc_part(model, &*part).visible_artmeshes;
             }
 
             if !changed {
@@ -842,7 +996,7 @@ impl<T: Model> Driver<T> {
                 }
             }
 
-            if !changed && self.artmesh.contains_key(artmesh.uid()) {
+            if !changed && !self.perftest_mode {
                 continue;
             }
 
@@ -870,17 +1024,24 @@ impl<T: Model> Driver<T> {
             blend_arrays(&arrays, &mut vertices, &weights);
 
             let mut visual: Visual = form.visual.into();
-            visual.visible = artmesh.visible();
+            visual.visible = artmesh.visible() && visible;
 
             if let Some(uid) = artmesh.deformer().map(|d| d.uid()) {
                 let pst = &self.deformer[uid];
                 pst.apply(&mut vertices, &mut visual);
             }
 
+            let depth = form.depth.clamp(0., 1000.);
+            if depth != old_depth {
+                self.order_changed = true;
+            }
+
             debug!("Updated ArtMesh #{}: {}", artmesh.uid(), artmesh.id());
             let st = ArtMeshState {
+                initialized: true,
                 updated: true,
                 visual,
+                depth,
                 vertices,
                 glued_vertices: None,
             };
@@ -978,6 +1139,14 @@ impl<T: Model> Driver<T> {
             st.glued_vertices = Some(verts_2);
         }
 
+        if self.order_changed {
+            let mut v = Vec::new();
+            if let Some(dg) = model.root_draw_group() {
+                self.collect_drawgroup(&*dg, &mut v);
+            }
+            self.sorted_artmeshes = v;
+        }
+
         for param in model.params() {
             self.param.get_mut(param.uid()).clean = true;
             for map in param.param_maps() {
@@ -986,12 +1155,49 @@ impl<T: Model> Driver<T> {
         }
     }
 
+    fn collect_drawgroup(&self, group: &T::DrawGroup<'_>, v: &mut Vec<T::Uid>) {
+        let item_depth = |it: &DrawItem<T>| match it {
+            DrawItem::ArtMesh(am) => &self.artmesh[am.uid()].depth,
+            DrawItem::Part(part_item) => &self.part[part_item.part.uid()].depth,
+        };
+
+        let mut items: Vec<_> = group.items().into_iter().collect();
+        items.sort_by(|a, b| f32::total_cmp(item_depth(a), item_depth(b)));
+        items.into_iter().for_each(|it| match it {
+            DrawItem::ArtMesh(am) => v.push(am.uid()),
+            DrawItem::Part(part_item) => self.collect_drawgroup(&*part_item.draw_group, v),
+        });
+    }
+
     pub fn artmesh_state(&self, uid: T::Uid) -> Option<DrivenArtMesh<'_>> {
         let st = self.artmesh.get(uid)?;
+        if !st.initialized {
+            return None;
+        }
         Some(DrivenArtMesh {
             updated: st.updated,
             visual: st.visual.clone(),
+            depth: st.depth,
             vertices: st.glued_vertices.as_ref().unwrap_or(&st.vertices),
         })
+    }
+
+    pub fn part_state(&self, uid: T::Uid) -> Option<DrivenPart> {
+        let st = self.part.get(uid)?;
+        if !st.initialized {
+            return None;
+        }
+        Some(DrivenPart {
+            updated: st.updated,
+            depth: st.depth,
+        })
+    }
+
+    pub fn order_changed(&self) -> bool {
+        self.order_changed
+    }
+
+    pub fn sorted_artmeshes(&self) -> &Vec<T::Uid> {
+        &self.sorted_artmeshes
     }
 }

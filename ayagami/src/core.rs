@@ -231,11 +231,47 @@ where
     fn keypoints(&self) -> &'model [f32];
 }
 
-pub trait DrawItem<'model>: Item<'model>
+pub struct PartDrawItem<'model, M: Model>
+where
+    M: 'model,
+{
+    pub part: <M::Part<'model> as Item<'model>>::Ref<'model>,
+    pub draw_group: <M::DrawGroup<'model> as Item<'model>>::Ref<'model>,
+}
+
+pub enum DrawItem<'model, M: Model>
+where
+    M: 'model,
+{
+    ArtMesh(<M::ArtMesh<'model> as Item<'model>>::Ref<'model>),
+    Part(PartDrawItem<'model, M>),
+}
+
+impl<'model, M: Model> Debug for DrawItem<'model, M>
+where
+    M: 'model,
+    M::Part<'model>: Debug,
+    M::DrawGroup<'model>: Debug,
+    M::ArtMesh<'model>: Debug,
+{
+    #[inline]
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        match self {
+            DrawItem::ArtMesh(am) => f.debug_tuple("ArtMesh").field(&**am).finish(),
+            DrawItem::Part(p) => f
+                .debug_struct("Part")
+                .field("part", &*p.part)
+                .field("draw_group", &*p.draw_group)
+                .finish(),
+        }
+    }
+}
+
+pub trait DrawGroup<'model>: Item<'model>
 where
     Self: 'model,
 {
-    fn artmesh(&self) -> Option<pm!(ArtMesh)>;
+    fn items(&self) -> impl IntoIterator<Item = DrawItem<'model, <Self as Item<'model>>::Model>>;
 }
 
 pub struct GlueCoord {
@@ -360,18 +396,20 @@ pub trait Model {
     model_type!(ParamMap);
     model_type!(BlendParamMap);
     model_type!(BlendWeightLimit);
-    model_type!(DrawItem);
+    model_type!(DrawGroup);
     model_type!(Glue);
 
     fn canvas_properties(&self) -> CanvasProperties;
 
+    fn parts(&self) -> impl Collection<'_, Self::Part<'_>>;
     fn deformers(&self) -> impl Collection<'_, Self::Deformer<'_>>;
     fn artmeshes(&self) -> impl Collection<'_, Self::ArtMesh<'_>>;
     fn params(&self) -> impl Collection<'_, Self::Param<'_>>;
     fn param_maps(&self) -> impl Collection<'_, Self::ParamMap<'_>>;
     fn blend_param_maps(&self) -> impl Collection<'_, Self::BlendParamMap<'_>>;
     fn blend_weight_limits(&self) -> impl Collection<'_, Self::BlendWeightLimit<'_>>;
-    fn draw_items(&self) -> impl Collection<'_, Self::DrawItem<'_>>;
+    fn draw_groups(&self) -> impl Collection<'_, Self::DrawGroup<'_>>;
+    fn root_draw_group(&self) -> Option<<Self::DrawGroup<'_> as Item<'_>>::Ref<'_>>;
     fn glues(&self) -> impl Collection<'_, Self::Glue<'_>>;
 
     fn index_buffer(&self) -> Option<&[u16]>;

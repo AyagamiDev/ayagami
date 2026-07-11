@@ -4,6 +4,7 @@ use super::classes::*;
 use super::types::*;
 use super::{Pass, Version};
 use crate::core;
+use crate::core::Model;
 use crate::file::Pass::V3_0;
 use ParseError::*;
 use byteorder::LittleEndian;
@@ -468,6 +469,15 @@ impl ParsedModel {
         blend_form_map!(Warp, warp_deformer);
         blend_form_map!(Part, part);
         blend_form_map!(Glue, glue);
+
+        // TODO: There's probably a better way...
+        if let Some(dg) = self
+            .draw_groups()
+            .into_iter()
+            .max_by_key(|g| *g.f_total_artmesh_count())
+        {
+            self.root_draw_group = Some(dg.idx())
+        }
 
         Ok(())
     }

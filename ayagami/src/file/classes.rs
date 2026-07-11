@@ -446,6 +446,7 @@ declare_file_objects!(ParsedModel {
     Global {
         pub(crate) canvas: Canvas,
         pub(crate) version: Option<Version>,
+        pub(crate) root_draw_group: Option<IDrawGroup>,
     },
     Base {
         Part,

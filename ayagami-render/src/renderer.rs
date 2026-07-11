@@ -885,11 +885,11 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
             am_data.clip_use_count = 0;
         }
 
-        for draw_item in m.draw_items() {
-            let artmesh = draw_item.artmesh().unwrap();
-            let state = md.driver.artmesh_state(artmesh.uid()).unwrap();
+        for uid in md.driver.sorted_artmeshes() {
+            let artmesh = m.artmeshes().get(*uid).unwrap();
+            let state = md.driver.artmesh_state(*uid).unwrap();
             if state.visual.opacity != 0. && state.visual.visible {
-                let am_data = md.artmesh_data.get(&artmesh.uid()).unwrap();
+                let am_data = md.artmesh_data.get(uid).unwrap();
                 if let Some(idx) = am_data.clip_set {
                     md.clip_sets[idx].cur_use_count += 1;
                 }
@@ -1050,13 +1050,13 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
 
         render_pass.set_index_buffer(md.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
 
-        for draw_item in m.draw_items().into_iter() {
-            let artmesh = draw_item.artmesh().unwrap();
-            let state = md.driver.artmesh_state(artmesh.uid()).unwrap();
+        for uid in md.driver.sorted_artmeshes() {
+            let artmesh = m.artmeshes().get(*uid).unwrap();
+            let state = md.driver.artmesh_state(*uid).unwrap();
             if state.visual.opacity == 0. || !state.visual.visible {
                 continue;
             }
-            let am_data = md.artmesh_data.get(&artmesh.uid()).unwrap();
+            let am_data = md.artmesh_data.get(uid).unwrap();
 
             let mode = PipelineMode {
                 surface_format,

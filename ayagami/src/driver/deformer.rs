@@ -72,6 +72,7 @@ impl WarpFormVals {
 #[repr(C)]
 pub(crate) struct ArtMeshFormVals {
     pub(crate) visual: VisualVals,
+    pub(crate) depth: f32,
 }
 
 impl ArtMeshFormVals {
@@ -83,6 +84,7 @@ impl ArtMeshFormVals {
                 screen_color: f.screen_color().into(),
             }
             .saturate(),
+            depth: f.depth(),
         }
     }
 }

@@ -374,14 +374,20 @@ impl<'model> core::RotForm<'model> for RotFormView<'model> {
     }
 }
 
-declare_item!(DrawItemView);
-impl<'model> core::DrawItem<'model> for DrawItemView<'model> {
-    fn artmesh(&self) -> Option<impl Deref<Target = ArtMeshView<'model>>> {
-        if *self.f_item_type() == DrawItemType::ArtMesh {
-            Some(ArtMeshView::get_ref(self.model, IArtMesh(*self.f_i_child())).unwrap())
-        } else {
-            None
-        }
+declare_item!(DrawGroupView);
+impl<'model> core::DrawGroup<'model> for DrawGroupView<'model> {
+    fn items(&self) -> impl IntoIterator<Item = core::DrawItem<'model, Self::Model>> {
+        self.items_views()
+            .into_iter()
+            .map(|item| match item.f_item_type() {
+                DrawItemType::ArtMesh => core::DrawItem::ArtMesh(
+                    ArtMeshView::get_ref(self.model, IArtMesh(*item.f_i_child())).unwrap(),
+                ),
+                DrawItemType::Part => core::DrawItem::Part(core::PartDrawItem {
+                    part: PartView::get_ref(self.model, IPart(*item.f_i_child())).unwrap(),
+                    draw_group: item.draw_group_view().unwrap().into_ref(),
+                }),
+            })
     }
 }
 
@@ -559,7 +565,7 @@ impl core::Model for ParsedModel {
     type ParamMap<'a> = ParamMapView<'a>;
     type BlendParamMap<'a> = BlendParamMapView<'a>;
     type BlendWeightLimit<'a> = BlendWeightLimitView<'a>;
-    type DrawItem<'a> = DrawItemView<'a>;
+    type DrawGroup<'a> = DrawGroupView<'a>;
     type Glue<'a> = GlueView<'a>;
 
     fn canvas_properties(&self) -> core::CanvasProperties {
@@ -570,6 +576,10 @@ impl core::Model for ParsedModel {
         }
     }
 
+    fn parts(&self) -> impl core::Collection<'_, Self::Part<'_>> {
+        ItemCollection::new(self, 0, self.part.count as u32)
+    }
+
     fn artmeshes(&self) -> impl core::Collection<'_, Self::ArtMesh<'_>> {
         ItemCollection::new(self, 0, self.art_mesh.count as u32)
     }
@@ -578,8 +588,13 @@ impl core::Model for ParsedModel {
         ItemCollection::new(self, 0, self.deformer.count as u32)
     }
 
-    fn draw_items(&self) -> impl core::Collection<'_, Self::DrawItem<'_>> {
-        ItemCollection::new(self, 0, self.draw_item.count as u32)
+    fn draw_groups(&self) -> impl core::Collection<'_, Self::DrawGroup<'_>> {
+        ItemCollection::new(self, 0, self.draw_group.count as u32)
+    }
+
+    fn root_draw_group(&self) -> Option<<Self::DrawGroup<'_> as core::Item<'_>>::Ref<'_>> {
+        self.root_draw_group
+            .map(|idx| DrawGroupView::get_ref(self, idx).unwrap())
     }
 
     fn param_maps(&self) -> impl core::Collection<'_, Self::ParamMap<'_>> {
