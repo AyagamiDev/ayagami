@@ -1,0 +1,3 @@
+[submodule "ayagami-demo/egui_logger"]
+	path = ayagami-demo/egui_logger
+	url = https://github.com/hoshinolina/egui_logger
