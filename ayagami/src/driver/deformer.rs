@@ -1,4 +1,7 @@
-use glam::f32::{Vec2, Vec3};
+use glam::{
+    FloatExt,
+    f32::{Vec2, Vec3},
+};
 use zerocopy_derive::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 use crate::core::{ArtMeshForm, RotForm, WarpForm};
@@ -10,6 +13,15 @@ pub(crate) struct VisualVals {
     pub(crate) opacity: f32,
     pub(crate) multiply_color: Vec3,
     pub(crate) screen_color: Vec3,
+}
+
+impl VisualVals {
+    pub(crate) fn saturate(mut self) -> Self {
+        self.opacity = self.opacity.saturate();
+        self.multiply_color = self.multiply_color.saturate();
+        self.screen_color = self.screen_color.saturate();
+        self
+    }
 }
 
 #[derive(Debug, IntoBytes, FromBytes, KnownLayout, Immutable)]
@@ -28,7 +40,8 @@ impl RotFormVals {
                 opacity: f.opacity(),
                 multiply_color: f.multiply_color().into(),
                 screen_color: f.screen_color().into(),
-            },
+            }
+            .saturate(),
             scale: f.scale(),
             angle: f.angle(),
             pos: f.position(),
@@ -49,7 +62,8 @@ impl WarpFormVals {
                 opacity: f.opacity(),
                 multiply_color: f.multiply_color().into(),
                 screen_color: f.screen_color().into(),
-            },
+            }
+            .saturate(),
         }
     }
 }
@@ -67,7 +81,8 @@ impl ArtMeshFormVals {
                 opacity: f.opacity(),
                 multiply_color: f.multiply_color().into(),
                 screen_color: f.screen_color().into(),
-            },
+            }
+            .saturate(),
         }
     }
 }

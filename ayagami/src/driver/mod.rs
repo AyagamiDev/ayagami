@@ -98,6 +98,7 @@ pub struct Visual {
 
 impl From<VisualVals> for Visual {
     fn from(v: VisualVals) -> Self {
+        let v = v.saturate();
         Self {
             visible: true,
             opacity: v.opacity,
@@ -165,7 +166,7 @@ impl Visual {
         visual.opacity *= self.opacity;
         visual.visible = visual.visible && self.visible;
         visual.multiply_color *= self.multiply_color;
-        visual.screen_color += self.screen_color;
+        visual.screen_color = (visual.screen_color + self.screen_color).saturate();
     }
 }
 
