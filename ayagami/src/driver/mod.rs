@@ -334,13 +334,18 @@ struct ParamMapState {
     value: Option<(usize, f32)>,
 }
 
-impl ParamMapState {}
+#[derive(Default, Debug)]
+struct BlendLimitState {
+    updated: bool,
+    weight: f32,
+}
 
 pub struct Driver<T: Model> {
     param_uids: HashMap<String, T::Uid>,
     param: ItemState<T, ParamState>,
     param_map: ItemState<T, ParamMapState>,
     blend_param_map: ItemState<T, ParamMapState>,
+    blend_limit: ItemState<T, BlendLimitState>,
     deformer: ItemState<T, DeformerState>,
     artmesh: ItemState<T, ArtMeshState>,
 }
@@ -380,6 +385,7 @@ impl<T: Model> Driver<T> {
             param,
             param_map: Default::default(),
             blend_param_map: Default::default(),
+            blend_limit: Default::default(),
             deformer: Default::default(),
             artmesh: Default::default(),
         }
@@ -454,11 +460,24 @@ impl<T: Model> Driver<T> {
 
         if let Some(blends) = blends {
             for blend in blends.into_iter() {
+                let mut weight: f32 = 1.0;
+                for limit in blend.limits().into_iter() {
+                    weight = weight.min(self.blend_limit[limit.uid()].weight);
+                }
+                let neutral = blend.param_map().neutral_index() as usize;
                 let st = &self.blend_param_map[blend.param_map().uid()];
                 form_list.push(blend.forms().index(st.value?.0).unwrap());
                 form_list.push(blend.forms().index(st.value?.0 + 1).unwrap());
-                weights.push(1. - st.value?.1);
-                weights.push(st.value?.1);
+                weights.push(if st.value?.0 == neutral {
+                    0.
+                } else {
+                    weight * (1. - st.value?.1)
+                });
+                weights.push(if (st.value?.0 + 1) == neutral {
+                    0.
+                } else {
+                    weight * st.value?.1
+                });
             }
         }
 
@@ -598,24 +617,35 @@ impl<T: Model> Driver<T> {
             }
         }
 
+        fn check_bfm<'model, B: BlendFormMap<'model>>(
+            this: &Driver<<B::Form as Item<'model>>::Model>,
+            bfm: &B,
+        ) -> bool {
+            if !this.blend_param_map[bfm.param_map().uid()].clean {
+                return true;
+            }
+            for l in bfm.limits() {
+                if this.blend_limit[l.uid()].updated {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         match deformer.typed() {
             TypedDeformer::Warp(w) => {
-                if let Some(bfms) = w.blend_form_maps() {
-                    for bfm in bfms.into_iter() {
-                        if !self.blend_param_map[bfm.param_map().uid()].clean {
-                            changed = true;
-                            break;
-                        }
+                for bfm in w.blend_form_maps().into_iter().flatten() {
+                    if check_bfm(self, &*bfm) {
+                        changed = true;
+                        break;
                     }
                 }
             }
             TypedDeformer::Rotation(r) => {
-                if let Some(bfms) = r.blend_form_maps() {
-                    for bfm in bfms.into_iter() {
-                        if !self.blend_param_map[bfm.param_map().uid()].clean {
-                            changed = true;
-                            break;
-                        }
+                for bfm in r.blend_form_maps().into_iter().flatten() {
+                    if check_bfm(self, &*bfm) {
+                        changed = true;
+                        break;
                     }
                 }
             }
@@ -707,7 +737,7 @@ impl<T: Model> Driver<T> {
                             if value == *b {
                                 mstate.value = Some((i, 1.0));
                             } else if value >= *a && value < *b {
-                                mstate.value = Some((i, (value - a) / (b - a)));
+                                mstate.value = Some((i, f32::inverse_lerp(*a, *b, value)));
                             }
                         }
                     }
@@ -731,6 +761,36 @@ impl<T: Model> Driver<T> {
                     param.id(),
                     pstate
                 );
+            } else {
+                for map in param.param_maps() {
+                    self.param_map.get_mut(map.uid()).clean = true;
+                }
+                for map in param.blend_param_maps() {
+                    self.blend_param_map.get_mut(map.uid()).clean = true;
+                }
+            }
+        }
+
+        for l in model.blend_weight_limits() {
+            let param = &self.param[l.param().uid()];
+            let st = self.blend_limit.lookup(l.uid());
+            if !param.clean {
+                let old = st.weight;
+                st.weight = l.points().into_iter().last().unwrap().weight;
+
+                for (a, b) in l.points().into_iter().zip(l.points().into_iter().skip(1)) {
+                    if param.value < a.value {
+                        st.weight = a.weight;
+                        break;
+                    } else if param.value >= a.value && param.value < b.value {
+                        let t = f32::inverse_lerp(a.value, b.value, param.value);
+                        st.weight = a.weight.lerp(b.weight, t);
+                        break;
+                    }
+                }
+                st.updated = old != st.weight;
+            } else {
+                st.updated = false;
             }
         }
 
@@ -761,6 +821,16 @@ impl<T: Model> Driver<T> {
                     if !pm_state.clean {
                         changed = true;
                         break;
+                    }
+                }
+            }
+            if !changed {
+                'bfm: for bfm in artmesh.blend_form_maps().into_iter().flatten() {
+                    for l in bfm.limits() {
+                        if self.blend_limit[l.uid()].updated {
+                            changed = true;
+                            break 'bfm;
+                        }
                     }
                 }
             }

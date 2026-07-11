@@ -447,6 +447,15 @@ macro_rules! blend_form_map_view {
                 c.parent = Some(self.1);
                 c
             }
+
+            fn limits(
+                &self,
+            ) -> impl IntoIterator<Item = impl Deref<Target = BlendWeightLimitView<'model>>> {
+                self.0
+                    .blendweight_limits_views()
+                    .into_iter()
+                    .map(|i| i.limit_view().into_ref())
+            }
         }
     };
 }
@@ -456,6 +465,20 @@ blend_form_map_view!(WarpBlendFormMapView, WarpForm);
 blend_form_map_view!(ArtMeshBlendFormMapView, ArtMeshForm);
 blend_form_map_view!(PartBlendFormMapView, PartForm);
 blend_form_map_view!(GlueBlendFormMapView, GlueForm);
+
+declare_item!(BlendWeightLimitView);
+impl<'model> core::BlendWeightLimit<'model> for BlendWeightLimitView<'model> {
+    item_ref!(param, ParamView<'model>, param_view);
+
+    fn points(&self) -> impl IntoIterator<Item = core::BlendWeightLimitPoint> {
+        self.points_views()
+            .into_iter()
+            .map(|pt| core::BlendWeightLimitPoint {
+                value: *pt.f_value(),
+                weight: *pt.f_weight(),
+            })
+    }
+}
 
 //////////////////////
 
@@ -534,6 +557,7 @@ impl core::Model for ParsedModel {
     type Param<'a> = ParamView<'a>;
     type ParamMap<'a> = ParamMapView<'a>;
     type BlendParamMap<'a> = BlendParamMapView<'a>;
+    type BlendWeightLimit<'a> = BlendWeightLimitView<'a>;
     type DrawItem<'a> = DrawItemView<'a>;
     type Glue<'a> = GlueView<'a>;
 
@@ -563,6 +587,10 @@ impl core::Model for ParsedModel {
 
     fn blend_param_maps(&self) -> impl core::Collection<'_, Self::BlendParamMap<'_>> {
         ItemCollection::new(self, 0, self.blend_param_map.count as u32)
+    }
+
+    fn blend_weight_limits(&self) -> impl core::Collection<'_, Self::BlendWeightLimit<'_>> {
+        ItemCollection::new(self, 0, self.blend_weight_limit.count as u32)
     }
 
     fn params(&self) -> impl core::Collection<'_, Self::Param<'_>> {

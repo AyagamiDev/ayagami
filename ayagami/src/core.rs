@@ -288,7 +288,27 @@ where
         &self,
     ) -> impl Deref<Target = <<Self::Form as Item<'model>>::Model as Model>::BlendParamMap<'model>>;
     fn forms(&self) -> ita!(Self::Form);
-    // blendweight limits
+    fn limits(
+        &self,
+    ) -> impl IntoIterator<
+        Item = impl Deref<
+            Target = <<Self::Form as Item<'model>>::Model as Model>::BlendWeightLimit<'model>,
+        >,
+    >;
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct BlendWeightLimitPoint {
+    pub value: f32,
+    pub weight: f32,
+}
+
+pub trait BlendWeightLimit<'model>: Item<'model>
+where
+    Self: 'model,
+{
+    fn param(&self) -> pm!(Param);
+    fn points(&self) -> impl IntoIterator<Item = BlendWeightLimitPoint>;
 }
 
 pub trait ItemArray<'model, T: Item<'model>>: IntoIterator<Item = T::Ref<'model>> {
@@ -339,19 +359,20 @@ pub trait Model {
     model_type!(Param);
     model_type!(ParamMap);
     model_type!(BlendParamMap);
+    model_type!(BlendWeightLimit);
     model_type!(DrawItem);
     model_type!(Glue);
 
     fn canvas_properties(&self) -> CanvasProperties;
 
-    fn artmeshes(&self) -> impl Collection<'_, Self::ArtMesh<'_>>;
     fn deformers(&self) -> impl Collection<'_, Self::Deformer<'_>>;
+    fn artmeshes(&self) -> impl Collection<'_, Self::ArtMesh<'_>>;
+    fn params(&self) -> impl Collection<'_, Self::Param<'_>>;
     fn param_maps(&self) -> impl Collection<'_, Self::ParamMap<'_>>;
     fn blend_param_maps(&self) -> impl Collection<'_, Self::BlendParamMap<'_>>;
-    fn params(&self) -> impl Collection<'_, Self::Param<'_>>;
-    fn glues(&self) -> impl Collection<'_, Self::Glue<'_>>;
-
+    fn blend_weight_limits(&self) -> impl Collection<'_, Self::BlendWeightLimit<'_>>;
     fn draw_items(&self) -> impl Collection<'_, Self::DrawItem<'_>>;
+    fn glues(&self) -> impl Collection<'_, Self::Glue<'_>>;
 
     fn index_buffer(&self) -> Option<&[u16]>;
     fn texcoord_buffer(&self) -> Option<&[Coord]>;
