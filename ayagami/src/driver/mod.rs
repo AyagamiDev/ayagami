@@ -217,27 +217,39 @@ impl WarpState {
         self.vertices[row * pt.y + pt.x]
     }
     fn extrap_point(&self, pt: USizeVec2) -> Vec2 {
-        if pt.min_element() >= 1 && pt.x <= (self.size.x + 1) && pt.y <= (self.size.y + 1) {
+        // If the input point is within bounds of the mesh offset by 1
+        // (1..size + 1), just read it from the mesh. Otherwise, we
+        // obtain the point on the outer perimeter of the extrapolation
+        // area by mapping small coordinates to -2 and large coordinates
+        // to +3 in the affine transform input space, which is the
+        // outer boundary (not to scale here):
+        // -2  0   1   3
+        // +---+-+-+---+ -2  -
+        // |   | | |   |      | Extrapolated range
+        // +---+-+-+---+ 0    | -
+        // +---+-+-+---+ 0.5  |  | Range in bounds of mesh
+        // +---+-+-+---+ 1    | -
+        // |   | | |   |      |
+        // +---+-+-+---+ 3   -
+
+        let low = pt.cmplt(USizeVec2::ONE);
+        let high = pt.cmpgt(self.size + 1);
+
+        if !low.any() && !high.any() {
             return self.point(pt - 1);
         }
 
-        let ix = if pt.x == 0 {
-            -2.
-        } else if pt.x > (self.size.x + 1) {
-            3.
-        } else {
-            (pt.x - 1) as f32 / self.size.x as f32
-        };
+        let pi = Vec2::select(
+            low,
+            Vec2::splat(-2.),
+            Vec2::select(
+                high,
+                Vec2::splat(3.),
+                (pt - 1).as_vec2() / self.size.as_vec2(),
+            ),
+        );
 
-        let iy = if pt.y == 0 {
-            -2.
-        } else if pt.y > (self.size.y + 1) {
-            3.
-        } else {
-            (pt.y - 1) as f32 / self.size.y as f32
-        };
-
-        self.get_affine().transform_point2(vec2(ix, iy))
+        self.get_affine().transform_point2(pi)
     }
     fn apply(&self, coords: &mut [Coord], visual: &mut Visual) {
         trace!(
@@ -254,22 +266,19 @@ impl WarpState {
             if c.min_element() < 0. || c.max_element() > 1. {
                 let aff = self.get_affine();
                 if c.min_element() <= -2.0 || c.max_element() >= 3.0 {
-                    // Out of expanded warp area, apply affine transform and return
+                    // Out of expanded warp transition area, apply affine transform and return
                     *c = aff.transform_point2(*c);
                     return;
                 }
-                let mut rpos = *c * fsize;
-                if rpos.x < 0. {
-                    rpos.x = c.x / 2.;
-                } else if rpos.x > fsize.x {
-                    rpos.x = (c.x - 1.) / 2. + fsize.x;
-                }
-                if rpos.y < 0. {
-                    rpos.y = c.y / 2.;
-                } else if rpos.y >= fsize.y {
-                    rpos.y = (c.y - 1.) / 2. + fsize.y;
-                }
-                let rpos = rpos + 1.;
+                // Map the input space like this, for size=10:
+                //  c:    -2. 0. .1 ..  .9  1.  3.
+                //  rpos:  0. 1. 2. .. 10. 11. 12.
+                // rpos then is in the range that extrap_point() expects.
+                let rpos = Vec2::select(
+                    c.cmplt(Vec2::ZERO),
+                    *c / 2.,
+                    Vec2::select(c.cmpgt(Vec2::ONE), (*c - 1.) / 2. + fsize, *c * fsize),
+                ) + 1.;
                 let ipos = rpos.as_usizevec2().clamp(USizeVec2::ZERO, self.size + 1);
                 let fpos = rpos - ipos.as_vec2();
                 assert!(fpos.min_element() >= 0. && fpos.max_element() <= 1.);
