@@ -806,8 +806,6 @@ impl<T: Model> Driver<T> {
                         break 'bfm;
                     }
                 }
-                changed = true;
-                break;
             }
         }
 
@@ -992,6 +990,10 @@ impl<T: Model> Driver<T> {
             }
             if !changed {
                 'bfm: for bfm in artmesh.blend_form_maps().into_iter().flatten() {
+                    if !self.blend_param_map[bfm.param_map().uid()].clean {
+                        changed = true;
+                        break;
+                    }
                     for l in bfm.limits() {
                         if self.blend_limit[l.uid()].updated {
                             changed = true;
