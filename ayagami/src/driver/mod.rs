@@ -1151,6 +1151,7 @@ impl<T: Model> Driver<T> {
             if let Some(dg) = model.root_draw_group() {
                 self.collect_drawgroup(&*dg, &mut v);
             }
+            self.order_changed = self.sorted_artmeshes != v;
             self.sorted_artmeshes = v;
         }
 
