@@ -12,9 +12,8 @@ use std::{
 use thiserror::Error;
 
 use glam::{
-    FloatExt, USizeVec2,
     f32::{Affine2, Mat2, Vec2, Vec3},
-    vec2,
+    vec2, FloatExt, USizeVec2,
 };
 
 // Depth is floor()ed to int. When interpolating between identical integer values,
@@ -120,14 +119,14 @@ struct ArtMeshState {
     visual: Visual,
     depth: i32,
     #[debug("vertices: [{}..{}, {} verts]",
-        vertices.iter().copied().reduce(Vec2::min).unwrap(),
-        vertices.iter().copied().reduce(Vec2::max).unwrap(),
+        vertices.iter().copied().reduce(Vec2::min).unwrap_or(Default::default()),
+        vertices.iter().copied().reduce(Vec2::max).unwrap_or(Default::default()),
         vertices.len()
     )]
     vertices: Vec<Coord>,
     #[debug("glued_vertices: [{:?}..{:?}, {:?} verts]",
-        glued_vertices.as_ref().map(|a| a.iter().copied().reduce(Vec2::min).unwrap()),
-        glued_vertices.as_ref().map(|a| a.iter().copied().reduce(Vec2::max).unwrap()),
+        glued_vertices.as_ref().map(|a| a.iter().copied().reduce(Vec2::min).unwrap_or(Default::default())),
+        glued_vertices.as_ref().map(|a| a.iter().copied().reduce(Vec2::max).unwrap_or(Default::default())),
         glued_vertices.as_ref().map(|a| a.len()),
     )]
     glued_vertices: Option<Vec<Coord>>,
@@ -139,8 +138,8 @@ struct WarpState {
     size: USizeVec2,
     bilinear: bool,
     #[debug("vertices: [{}..{}, {} verts]",
-        vertices.iter().copied().reduce(Vec2::min).unwrap(),
-        vertices.iter().copied().reduce(Vec2::max).unwrap(),
+        vertices.iter().copied().reduce(Vec2::min).unwrap_or(Default::default()),
+        vertices.iter().copied().reduce(Vec2::max).unwrap_or(Default::default()),
         vertices.len()
     )]
     vertices: Vec<Coord>,
@@ -184,6 +183,9 @@ impl RotState {
             .iter_mut()
             .for_each(|c| *c = self.affine.transform_point2(*c));
         self.visual.apply(visual);
+    }
+    fn visible(&self) -> bool {
+        self.visual.visible
     }
 }
 
@@ -245,7 +247,8 @@ impl WarpState {
             Vec2::select(
                 high,
                 Vec2::splat(3.),
-                (pt - 1).as_vec2() / self.size.as_vec2(),
+                // Subtract after float conv, this can overflow
+                (pt.as_vec2() - 1.) / self.size.as_vec2(),
             ),
         );
 
@@ -259,6 +262,7 @@ impl WarpState {
             self.vertices.len(),
             coords.len()
         );
+        assert!(self.size.x >= 1 && self.size.y >= 1);
 
         let fsize = self.size.as_vec2();
 
@@ -317,6 +321,9 @@ impl WarpState {
         });
         self.visual.apply(visual);
     }
+    fn visible(&self) -> bool {
+        self.visual.visible
+    }
 }
 
 impl DeformerState {
@@ -334,6 +341,16 @@ impl DeformerState {
         match sub {
             DeformerSubState::Rot(r) => r.scale,
             DeformerSubState::Warp(w) => w.scale,
+        }
+    }
+    fn visible(&self) -> bool {
+        if let Some(sub) = self.sub.as_ref() {
+            match sub {
+                DeformerSubState::Rot(r) => r.visible(),
+                DeformerSubState::Warp(w) => w.visible(),
+            }
+        } else {
+            false
         }
     }
 }
@@ -547,6 +564,7 @@ impl<T: Model> Driver<T> {
         let Some((forms, weights)) =
             self.get_form_set(model, rot.param_maps(), rot.forms(), rot.blend_form_maps())
         else {
+            trace!("  ++ Invisible (out of range)");
             // Out of range, return default (invisible) state
             return Default::default();
         };
@@ -620,6 +638,7 @@ impl<T: Model> Driver<T> {
             warp.blend_form_maps(),
         ) else {
             // Out of range, return default (invisible) state
+            trace!("  ++ Invisible (out of range)");
             return Default::default();
         };
 
@@ -706,15 +725,20 @@ impl<T: Model> Driver<T> {
             }
         };
 
+        let mut visible = true;
         if let Some(parent) = deformer.parent() {
             if self.calc_deformer(model, &*parent) {
                 changed = true;
             }
+            let pst = &self.deformer[parent.uid()];
+            if !pst.visible() {
+                // Out of range or disabled, just propagate
+                visible = false;
+            }
         }
 
-        let mut visible = true;
         if let Some(part) = deformer.part() {
-            if !self.calc_part(model, &*part).visible_artmeshes {
+            if !self.calc_part(model, &*part).visible_deformers {
                 visible = false;
             }
         }
@@ -724,6 +748,19 @@ impl<T: Model> Driver<T> {
         }
 
         let st = self.deformer.get_mut(deformer.uid());
+
+        if !visible {
+            trace!(
+                ">> Invisible defomer #{} {} (parent is invisible)",
+                deformer.uid(),
+                deformer.id()
+            );
+            st.clean = true;
+            st.updated = true;
+            st.sub = None;
+
+            return true;
+        }
 
         trace!(
             ">> Update defomer #{} {} {}/{}",
@@ -899,7 +936,11 @@ impl<T: Model> Driver<T> {
                     }
                     trace!(
                         "  {} #{}: {} -> {:?} ({:?})",
-                        tname, uid, value, mstate.value, kp
+                        tname,
+                        uid,
+                        value,
+                        mstate.value,
+                        kp
                     );
                 };
 
@@ -978,17 +1019,19 @@ impl<T: Model> Driver<T> {
             st.initialized = true;
             let old_depth = if !st.initialized { i32::MIN } else { st.depth };
 
+            let mut visible = true;
             if let Some(deformer) = artmesh.deformer() {
                 let deformer_changed = self.calc_deformer(model, &*deformer);
                 changed = changed || deformer_changed;
+                let pst = &self.deformer[deformer.uid()];
+                visible = visible && pst.visible();
             }
 
-            let mut visible = true;
             if let Some(part) = artmesh.part() {
-                visible = self.calc_part(model, &*part).visible_artmeshes;
+                visible = visible && self.calc_part(model, &*part).visible_artmeshes;
             }
 
-            if !changed {
+            if visible && !changed {
                 for pm in artmesh.param_maps() {
                     let pm_state = &self.param_map[pm.uid()];
                     if !pm_state.clean {
@@ -997,7 +1040,7 @@ impl<T: Model> Driver<T> {
                     }
                 }
             }
-            if !changed {
+            if visible && !changed {
                 'bfm: for bfm in artmesh.blend_form_maps().into_iter().flatten() {
                     if !self.blend_param_map[bfm.param_map().uid()].clean {
                         changed = true;
@@ -1016,6 +1059,18 @@ impl<T: Model> Driver<T> {
                 continue;
             }
 
+            // Short circuit if ArtMesh is invisible
+            if !visible {
+                debug!("ArtMesh #{} {}: Invisible", artmesh.uid(), artmesh.id());
+                let st = ArtMeshState {
+                    initialized: true,
+                    updated: true,
+                    ..Default::default()
+                };
+                self.artmesh.insert(artmesh.uid(), st);
+                continue;
+            }
+
             let Some((forms, weights)) = self.get_form_set(
                 model,
                 artmesh.param_maps(),
@@ -1024,7 +1079,12 @@ impl<T: Model> Driver<T> {
             ) else {
                 // Out of range, return default (invisible) state
                 debug!("ArtMesh #{} {}: Out of range", artmesh.uid(), artmesh.id());
-                self.artmesh.insert(artmesh.uid(), Default::default());
+                let st = ArtMeshState {
+                    initialized: true,
+                    updated: true,
+                    ..Default::default()
+                };
+                self.artmesh.insert(artmesh.uid(), st);
                 continue;
             };
 
