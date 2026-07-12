@@ -5,10 +5,14 @@ use ayagami_demo::AyagamiTestApp;
 // When compiling natively:
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
-    egui_logger::builder()
-        .max_level(log::LevelFilter::Info)
-        .init()
-        .unwrap();
+    if std::env::var("RUST_LOG").is_ok() {
+        env_logger::init();
+    } else {
+        egui_logger::builder()
+            .max_level(log::LevelFilter::Info)
+            .init()
+            .unwrap();
+    }
 
     let mut native_options = eframe::NativeOptions::default();
     native_options
