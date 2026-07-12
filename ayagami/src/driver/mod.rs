@@ -574,9 +574,10 @@ impl<T: Model> Driver<T> {
         let form = blend(&values, &weights);
 
         trace!(
-            "  ++ Scale={:?} Angle={:?} Pos={:?} (blended {} forms)",
+            "  ++ Scale={} Angle={}+{} Pos={:?} (blended {} forms)",
             form.scale,
             form.angle,
+            rot.angle_offset(),
             form.pos,
             weights.len(),
         );
@@ -584,7 +585,7 @@ impl<T: Model> Driver<T> {
         let mut st = RotState {
             affine: Affine2::from_scale_angle_translation(
                 Vec2::splat(form.scale),
-                form.angle.to_radians(),
+                (form.angle + rot.angle_offset()).to_radians(),
                 form.pos,
             ),
             visual: form.visual.into(),

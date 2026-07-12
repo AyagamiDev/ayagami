@@ -220,6 +220,7 @@ impl<'model> core::RotDeformer<'model> for RotDeformerView<'model> {
 
     special!(param_maps);
     special!(form);
+    by_value!(angle_offset, f32);
     child_collection!(forms, Self::Form, forms_views);
     special!(blend_form_maps, RotBlendFormMapView);
 }

@@ -132,6 +132,7 @@ where
     where
         Self: 'model;
     fn form(&self, indices: &[u32]) -> Option<p!(Form)>;
+    fn angle_offset(&self) -> f32;
     fn blend_form_maps(
         &self,
     ) -> Option<impl IntoIterator<Item = impl Deref<Target = Self::BlendFormMap>>>;
