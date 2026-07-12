@@ -1,0 +1,19 @@
+[build]
+pattern_script = '''
+<script type="module">
+    import init, * as bindings from '{base}{js}';
+    import wasm_bin from '{base}{wasm}.module.js';
+    const module = WebAssembly.compile(wasm_bin);
+    const wasm = await init({ module_or_path: module });
+
+    window.wasmBindings = bindings;
+    
+    dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: "{wasm}"}));
+</script>
+'''
+
+[[hooks]]
+stage = "post_build"
+command = "./inline-wasm.sh"
+command_arguments = []
+
