@@ -11,13 +11,19 @@ pub use parse::ParseError;
 use strum::VariantArray;
 use strum_macros::FromRepr;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, FromRepr)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, FromRepr, derive_more::Display)]
 pub enum Version {
+    #[display("3.0")]
     V3_0 = 1,
+    #[display("3.3")]
     V3_3 = 2,
+    #[display("4.0")]
     V4_0 = 3,
+    #[display("4.2")]
     V4_2 = 4,
+    #[display("5.0")]
     V5_0 = 5,
+    #[display("5.3")]
     V5_3 = 6,
 }
 

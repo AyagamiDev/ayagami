@@ -11,7 +11,7 @@ use std::{
 use anyhow::anyhow;
 use wgpu::util::DeviceExt;
 
-use ayagami::meta;
+use ayagami::{core::ItemArray, meta};
 use ayagami::{
     core::{Model, Param},
     file,
@@ -37,9 +37,10 @@ pub struct AppState {
     param_values: HashMap<<file::ParsedModel as ayagami::core::Model>::Uid, f32>,
 }
 
-type ModelRenderer = ayagami_render::ModelRenderer<file::ParsedModel, Box<file::ParsedModel>>;
+type ModelRenderer = ayagami_render::ModelRenderer<file::ParsedModel, Arc<file::ParsedModel>>;
 
 pub struct AyagamiTestApp {
+    model: Option<Arc<file::ParsedModel>>,
     renderer: Arc<Mutex<ModelRenderer>>,
     state: AppState,
     info: Option<meta::DisplayInfo>,
@@ -95,7 +96,7 @@ impl AyagamiTestApp {
         let mut moc = archive.by_path(&moc_path)?;
 
         info!("Loading model {}...", moc_path.to_string_lossy());
-        let model = Box::new(file::ParsedModel::load(&mut moc)?);
+        let model = Arc::new(file::ParsedModel::load(&mut moc)?);
         drop(moc);
 
         self.kp_param.clear();
@@ -119,6 +120,7 @@ impl AyagamiTestApp {
 
         let texref: Vec<&[u8]> = texdata.iter().map(|v| &v[..]).collect();
         info!("Loading model into renderer...");
+        self.model = Some(model.clone());
         self.renderer.lock().unwrap().load_model(model, &texref)?;
 
         self.info = None;
@@ -162,6 +164,7 @@ impl AyagamiTestApp {
             });
 
         let mut app = Self {
+            model: None,
             renderer,
             state: Default::default(),
             info: Default::default(),
@@ -305,6 +308,44 @@ impl AyagamiTestApp {
 
     fn left_panel(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let mut renderer = self.renderer.lock().unwrap();
+
+        ui.heading("Model Info");
+
+        let m = self.model.as_ref().unwrap();
+
+        ui.horizontal(|ui| {
+            match m.version() {
+                Some(ver) => ui.label(format!("Version: {}", ver)),
+                None => ui.label("Version: <unknown>"),
+            };
+
+            let dim = m.canvas_properties().dimensions;
+            let center = m.canvas_properties().center;
+            let scale = m.canvas_properties().scale;
+            ui.label(format!(
+                "Canvas: {}x{} ({}, {}) ×{}",
+                dim.x, dim.y, center.x, center.y, scale
+            ));
+        });
+        ui.horizontal(|ui| {
+            ui.label(format!("ArtMeshes: {}", m.artmeshes().count()));
+            ui.label(format!("Deformers: {}", m.deformers().count()));
+            ui.label(format!("Parameters: {}", m.params().count()));
+        });
+        ui.horizontal(|ui| {
+            ui.label(format!("Glues: {}", m.glues().count()));
+            ui.label(format!("Draw groups: {}", m.draw_groups().count()));
+            ui.label(format!(
+                "Vtx: {}",
+                m.texcoord_buffer().map(|i| i.len()).unwrap_or(0)
+            ));
+            ui.label(format!(
+                "Tri: {}",
+                m.index_buffer().map(|i| i.len() / 3).unwrap_or(0)
+            ));
+        });
+
+        ui.heading("Parameters");
 
         if let Some(info) = self.info.as_ref() {
             for group in info.parameter_groups.iter() {

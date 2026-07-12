@@ -481,4 +481,8 @@ impl ParsedModel {
 
         Ok(())
     }
+
+    pub fn version(&self) -> Option<Version> {
+        self.version
+    }
 }
