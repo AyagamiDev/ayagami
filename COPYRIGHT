@@ -1,0 +1,22 @@
+Short version for non-lawyers:
+
+The Ayagami Project is dual-licensed under Apache 2.0 and MIT
+terms.
+
+It is Copyright (c) The Ayagami Project Contributors.
+
+Longer version:
+
+Copyrights in the Ayagami project are retained by their contributors. No
+copyright assignment is required to contribute to the Rust project.
+
+Contributors must agree to the rules in the <CONTRIBUTING.md> file to
+contribute to the project, and all commits require a DCO signature that
+documents this agreement.
+
+Some files may include explicit copyright notices and/or license notices.
+For full authorship information, see the version control history.
+
+Except as otherwise noted, Ayagami is licensed under the Apache License, Version
+2.0 <LICENSE-APACHE> or <http://www.apache.org/licenses/LICENSE-2.0> or the MIT
+license <LICENSE-MIT> or <http://opensource.org/licenses/MIT>, at your option.
