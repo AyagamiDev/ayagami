@@ -31,8 +31,3 @@ web-sys = "0.3.70"
 wgpu = { version = "29.0", features = ["webgl"]}
 wasm-bindgen = "0.2"
 
-[target.wasm32-unknown-unknown]
-rustflags = ["-C", "target-feature=+simd128"]
-
-[profile.release]
-opt-level = 2 # fast and small wasm
