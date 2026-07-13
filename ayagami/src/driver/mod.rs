@@ -12,8 +12,9 @@ use std::{
 use thiserror::Error;
 
 use glam::{
+    FloatExt, USizeVec2,
     f32::{Affine2, Mat2, Vec2, Vec3},
-    vec2, FloatExt, USizeVec2,
+    vec2,
 };
 
 // Depth is floor()ed to int. When interpolating between identical integer values,
@@ -937,11 +938,7 @@ impl<T: Model> Driver<T> {
                     }
                     trace!(
                         "  {} #{}: {} -> {:?} ({:?})",
-                        tname,
-                        uid,
-                        value,
-                        mstate.value,
-                        kp
+                        tname, uid, value, mstate.value, kp
                     );
                 };
 
