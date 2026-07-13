@@ -37,7 +37,7 @@ fn main() {
         .surface
         .desired_maximum_frame_latency = Some(1);
     eframe::run_native(
-        "Ayagami Demo App",
+        "Ayagami Model Poser",
         native_options,
         Box::new(|cc| Ok(Box::new(AyagamiTestApp::new(cc)))),
     )

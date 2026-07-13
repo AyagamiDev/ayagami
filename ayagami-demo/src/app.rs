@@ -268,7 +268,7 @@ impl AyagamiTestApp {
         egui::widgets::global_theme_preference_switch(ui);
 
         ui.separator();
-        ui.label("Ayagami Demo App");
+        ui.label("Ayagami Model Poser");
 
         if let Some(render_state) = frame.wgpu_render_state() {
             let info = render_state.adapter.get_info();
@@ -278,6 +278,10 @@ impl AyagamiTestApp {
                 ui.label(format!("{:?}", info.backend));
                 ui.label("Backend:");
                 ui.separator();
+                ui.add(egui::Hyperlink::from_label_and_url(
+                    egui::RichText::new("Source code"),
+                    "https://github.com/AyagamiDev/ayagami",
+                ));
             });
         }
     }
