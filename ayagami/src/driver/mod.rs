@@ -1020,7 +1020,10 @@ impl<T: Model> Driver<T> {
             st.initialized = true;
             let old_depth = if !st.initialized { i32::MIN } else { st.depth };
 
-            let mut visible = true;
+            // Mark empty ArtMeshes as invisible, for convenience in the renderer
+            // (consolidates special cases)
+            let mut visible = artmesh.vertex_count() > 0 && artmesh.index_range().len() > 0;
+
             if let Some(deformer) = artmesh.deformer() {
                 let deformer_changed = self.calc_deformer(model, &*deformer);
                 changed = changed || deformer_changed;
