@@ -15,6 +15,23 @@ fn main() {
     }
 
     let mut native_options = eframe::NativeOptions::default();
+    if let eframe::egui_wgpu::WgpuSetup::CreateNew(setup) =
+        &mut native_options.wgpu_options.wgpu_setup
+    {
+        use std::sync::Arc;
+
+        let old_fn = setup.device_descriptor.clone();
+
+        setup.device_descriptor = Arc::new(move |adapter| {
+            let mut descriptor = old_fn(adapter);
+
+            // Request the maximum texture size
+            descriptor.required_limits.max_texture_dimension_2d =
+                adapter.limits().max_texture_dimension_2d;
+
+            descriptor
+        });
+    }
     native_options
         .wgpu_options
         .surface
