@@ -19,6 +19,7 @@ glam = { version = "0.33.1", features = ["bytemuck"] }
 derive_more = { version = "2.1.1", features = ["debug", "display"] }
 rayon = "1.12.0"
 json = "0.12.4"
+thiserror = "2.0.18"
 
 [dependencies.image]
 version = "0.25"

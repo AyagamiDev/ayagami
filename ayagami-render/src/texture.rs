@@ -3,10 +3,11 @@
 // https://github.com/sotrh/learn-wgpu/tree/master/code/beginner/tutorial5-textures
 // License: MIT
 
+use crate::renderer::RendererError;
 use anyhow::*;
-use image::{GenericImageView, Pixel};
-use log::info;
-use std::iter;
+use image::{GenericImageView, ImageReader, Pixel};
+use log::{error, info};
+use std::{io::Cursor, iter};
 
 pub struct Texture {
     #[allow(unused)]
@@ -23,8 +24,26 @@ impl Texture {
         label: &str,
     ) -> Result<Self> {
         info!("Decoding image {}", label);
-        let mut img = image::load_from_memory(bytes)?;
-        Self::from_image(device, queue, &img, Some(label))
+
+        // Use bigger than default limits to support 16K textures
+        let mut limits = image::Limits::no_limits();
+        limits.max_image_width = Some(16384);
+        limits.max_image_height = Some(16384);
+        limits.max_alloc = Some(16384 * 16384 * 12);
+
+        let mut reader = ImageReader::new(Cursor::new(bytes));
+        reader.limits(limits);
+        let mut reader = reader.with_guessed_format()?;
+        let img = reader.decode()?;
+
+        Self::from_image(device, queue, &img, Some(label)).with_context(|| {
+            format!(
+                "Failed to load texture {} ({}x{})",
+                label,
+                img.width(),
+                img.height(),
+            )
+        })
     }
 
     pub fn from_image(
@@ -33,7 +52,23 @@ impl Texture {
         img: &image::DynamicImage,
         label: Option<&str>,
     ) -> Result<Self> {
-        info!("Loading texture {:?}", label);
+        info!(
+            "Loading texture {:?} ({}x{})",
+            label,
+            img.width(),
+            img.height()
+        );
+
+        let max_dim = device.limits().max_texture_dimension_2d;
+        if img.width().max(img.height()) > max_dim {
+            Err(RendererError::TextureTooLarge(
+                label.unwrap_or("<unnamed>").to_string(),
+                img.width(),
+                img.height(),
+                max_dim,
+            ))?;
+        }
+
         info!("{:?}: Converting to RGBA8", label);
         let mut rgba = img.to_rgba8();
 
@@ -89,6 +124,8 @@ impl Texture {
             mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
+
+        info!("{:?}: Loaded", label);
 
         Ok(Self {
             texture,

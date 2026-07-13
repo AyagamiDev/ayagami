@@ -19,6 +19,13 @@ use rayon::prelude::*;
 use glam::f32::{Affine2, Mat3, Mat4, Vec2, Vec3, Vec4, vec2, vec4};
 use glam::u32::UVec2;
 use log::{debug, info, trace};
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum RendererError {
+    #[error("Texture {0} is too large: {1}x{2}, max dimension is {3}")]
+    TextureTooLarge(String, u32, u32, u32),
+}
 
 struct RenderTexture {
     tex: Texture,
@@ -364,6 +371,11 @@ pub struct RenderOptions {
 
 impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
     pub fn new(device: wgpu::Device, queue: wgpu::Queue) -> Result<Self> {
+        info!("Device limits:");
+        info!(
+            "  Maximum texture dimension: {}",
+            device.limits().max_texture_dimension_2d
+        );
         info!("Creating WGPU objects...");
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
