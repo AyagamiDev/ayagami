@@ -56,7 +56,23 @@ fn main() {
 
     //eframe::WebLogger::init(log::LevelFilter::Debug).ok();
 
-    let web_options = eframe::WebOptions::default();
+    let mut web_options = eframe::WebOptions::default();
+    if let eframe::egui_wgpu::WgpuSetup::CreateNew(setup) = &mut web_options.wgpu_options.wgpu_setup
+    {
+        use std::sync::Arc;
+
+        let old_fn = setup.device_descriptor.clone();
+
+        setup.device_descriptor = Arc::new(move |adapter| {
+            let mut descriptor = old_fn(adapter);
+
+            // Request the maximum texture size
+            descriptor.required_limits.max_texture_dimension_2d =
+                adapter.limits().max_texture_dimension_2d;
+
+            descriptor
+        });
+    }
 
     wasm_bindgen_futures::spawn_local(async {
         let document = web_sys::window()
