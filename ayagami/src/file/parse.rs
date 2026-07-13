@@ -349,6 +349,9 @@ impl ParsedModel {
         // V4_0: Added bit in render_config, no need to upgrade
         if ver < Version::V4_2 {
             debug!("Upgrading to V4.2");
+            self.param.unk_zero_2 = flat_vec(self.param.count, Default::default());
+            self.param.i_keypoints = flat_vec(self.param.count, IKeypoint(0));
+            self.param.cnt_keypoints = flat_vec(self.param.count, 0);
             self.param.blendshape = flat_vec(self.param.count, FALSE);
             self.param.i_blend_maps = flat_vec(self.param.count, IBlendParamMap(0));
             self.param.cnt_blend_maps = flat_vec(self.param.count, 0);
@@ -363,8 +366,8 @@ impl ParsedModel {
             self.rot_form.i_screen_color = flat_vec(self.rot_form.count, IScreenColor(0));
             self.multiply_color.count = 1;
             self.multiply_color.r = vec![1.0];
-            self.multiply_color.r = vec![1.0];
-            self.multiply_color.r = vec![1.0];
+            self.multiply_color.g = vec![1.0];
+            self.multiply_color.b = vec![1.0];
             self.screen_color.count = 1;
             self.screen_color.r = vec![0.0];
             self.screen_color.g = vec![0.0];
