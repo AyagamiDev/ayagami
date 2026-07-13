@@ -31,6 +31,8 @@ use eframe::{
     egui_wgpu,
 };
 
+const FALLBACK_FONT: &[u8] = include_bytes!("../assets/DroidSansFallback.ttf");
+
 #[derive(Default)]
 pub struct AppState {
     transform: Affine2,
@@ -142,7 +144,27 @@ impl AyagamiTestApp {
         Ok(())
     }
 
+    fn load_fonts(ctx: &egui::Context) {
+        use egui::epaint::text;
+        ctx.add_font(text::FontInsert::new(
+            "droid_sans_fallback",
+            egui::FontData::from_static(FALLBACK_FONT),
+            vec![
+                text::InsertFontFamily {
+                    family: egui::FontFamily::Proportional,
+                    priority: egui::epaint::text::FontPriority::Lowest,
+                },
+                text::InsertFontFamily {
+                    family: egui::FontFamily::Monospace,
+                    priority: egui::epaint::text::FontPriority::Lowest,
+                },
+            ],
+        ));
+    }
+
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        Self::load_fonts(&cc.egui_ctx);
+
         let render_state = cc.wgpu_render_state.as_ref().expect("WGPU enabled");
 
         let device = render_state.device.clone();
