@@ -48,5 +48,6 @@ echo "Building with trunk…"
 
 (cd $CRATE_NAME &&
   trunk build \
-    ${BUILD_FLAGS}
+    ${BUILD_FLAGS} &&
+  touch dist/.nojekyll
 )
