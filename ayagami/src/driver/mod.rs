@@ -525,8 +525,10 @@ impl<T: Model> Driver<T> {
                 }
                 stride *= count;
             }
-            form_list.push(forms.index(index).unwrap());
-            weights.push(weight);
+            if weight > 0. {
+                form_list.push(forms.index(index).unwrap());
+                weights.push(weight);
+            }
         }
 
         if let Some(blends) = blends {
@@ -537,18 +539,21 @@ impl<T: Model> Driver<T> {
                 }
                 let neutral = blend.param_map().neutral_index() as usize;
                 let st = &self.blend_param_map[blend.param_map().uid()];
-                form_list.push(blend.forms().index(st.value?.0).unwrap());
-                form_list.push(blend.forms().index(st.value?.0 + 1).unwrap());
-                weights.push(if st.value?.0 == neutral {
-                    0.
-                } else {
-                    weight * (1. - st.value?.1)
-                });
-                weights.push(if (st.value?.0 + 1) == neutral {
-                    0.
-                } else {
-                    weight * st.value?.1
-                });
+                let (idx, t) = st.value?;
+                if idx != neutral {
+                    let weight = weight * (1. - t);
+                    if weight > 0. {
+                        form_list.push(blend.forms().index(idx).unwrap());
+                        weights.push(weight);
+                    }
+                }
+                if (idx + 1) != neutral {
+                    let weight = weight * t;
+                    if weight > 0. {
+                        form_list.push(blend.forms().index(idx + 1).unwrap());
+                        weights.push(weight);
+                    }
+                }
             }
         }
 
