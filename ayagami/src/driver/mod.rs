@@ -502,7 +502,13 @@ impl<T: Model> Driver<T> {
 
         for map in maps.into_iter() {
             let st = &self.param_map[map.uid()];
-            states.push((map.keypoints().len(), st.value?));
+            let val = st.value?;
+            let stride = map.keypoints().len();
+            if stride > 1 {
+                states.push((stride, val));
+            } else {
+                assert!(val == (0, 0.));
+            }
         }
         assert!(states.len() < 32);
 
@@ -918,15 +924,25 @@ impl<T: Model> Driver<T> {
                     mstate.clean = false;
                     let kp = keypoints;
                     mstate.value = None;
-                    if kp.len() < 2 {
+                    if kp.len() < 1 {
                         warn!(
-                            "{} #{} (param #{} {}) has <2 keypoints: {:?}",
+                            "{} #{} (param #{} {}) has zero keypoints: {:?}",
                             tname,
                             uid,
                             param.uid(),
                             param.id(),
                             kp,
                         );
+                    } else if kp.len() == 1 {
+                        let point = kp.first().unwrap();
+                        if value == *point {
+                            mstate.value = Some((0, 0.0))
+                        } else {
+                            debug!(
+                                "  Value {} is out of range for {} #{} ({:?})",
+                                value, tname, uid, kp
+                            );
+                        }
                     } else if value < *kp.first().unwrap() || value > *kp.last().unwrap() {
                         debug!(
                             "  Value {} is out of range for {} #{} ({:?})",
