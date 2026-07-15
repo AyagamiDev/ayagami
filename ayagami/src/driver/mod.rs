@@ -402,6 +402,7 @@ impl PartState {
 
 pub struct Driver<T: Model> {
     param_uids: HashMap<String, T::Uid>,
+    part_uids: HashMap<String, T::Uid>,
     param: ItemState<T, ParamState>,
     param_map: ItemState<T, ParamMapState>,
     blend_param_map: ItemState<T, ParamMapState>,
@@ -430,9 +431,11 @@ pub struct DrivenPart {
 }
 
 #[derive(Error, Debug)]
-pub enum ParamError {
+pub enum DriverError {
     #[error("Parameter {0} does not exist")]
     ParameterNotFound(String),
+    #[error("Part {0} does not exist")]
+    PartNotFound(String),
 }
 
 impl<T: Model> Driver<T> {
@@ -452,9 +455,11 @@ impl<T: Model> Driver<T> {
             );
         }
 
+        let mut part_uids = HashMap::new();
         let mut part = ItemState::new();
 
         for p in model.parts() {
+            part_uids.insert(p.id().to_string(), p.uid());
             part.insert(
                 p.uid(),
                 PartState {
@@ -469,6 +474,7 @@ impl<T: Model> Driver<T> {
 
         Self {
             param_uids,
+            part_uids,
             param,
             param_map: Default::default(),
             blend_param_map: Default::default(),
@@ -482,28 +488,54 @@ impl<T: Model> Driver<T> {
         }
     }
 
-    pub fn set_param_by_id(&mut self, id: &str, value: f32) -> Result<(), ParamError> {
+    pub fn set_param_by_id(&mut self, id: &str, value: f32) -> Result<(), DriverError> {
         let uid = self
             .param_uids
             .get(id)
-            .ok_or_else(|| ParamError::ParameterNotFound(id.to_string()))?;
+            .ok_or_else(|| DriverError::ParameterNotFound(id.to_string()))?;
 
         self.set_param(*uid, value)?;
 
         Ok(())
     }
 
-    pub fn set_param(&mut self, uid: T::Uid, value: f32) -> Result<(), ParamError> {
+    pub fn set_param(&mut self, uid: T::Uid, value: f32) -> Result<(), DriverError> {
         if !self.param.key_valid(uid) {
-            return Err(ParamError::ParameterNotFound(format!("#{}", uid)));
+            return Err(DriverError::ParameterNotFound(format!("#{}", uid)));
         }
 
         let st = self.param.get_mut(uid);
         if !st.exists {
-            return Err(ParamError::ParameterNotFound(format!("#{}", uid)));
+            return Err(DriverError::ParameterNotFound(format!("#{}", uid)));
         }
         st.clean = st.clean && st.value == value;
         st.value = value;
+
+        Ok(())
+    }
+
+    pub fn set_part_opacity_by_id(&mut self, id: &str, opacity: f32) -> Result<(), DriverError> {
+        let uid = self
+            .part_uids
+            .get(id)
+            .ok_or_else(|| DriverError::PartNotFound(id.to_string()))?;
+
+        self.set_part_opacity(*uid, opacity)?;
+
+        Ok(())
+    }
+
+    pub fn set_part_opacity(&mut self, uid: T::Uid, opacity: f32) -> Result<(), DriverError> {
+        if !self.part.key_valid(uid) {
+            return Err(DriverError::PartNotFound(format!("#{}", uid)));
+        }
+
+        let st = self.part.get_mut(uid);
+        if !st.exists {
+            return Err(DriverError::PartNotFound(format!("#{}", uid)));
+        }
+        st.modified = st.modified || st.user_opacity != opacity;
+        st.user_opacity = opacity;
 
         Ok(())
     }
