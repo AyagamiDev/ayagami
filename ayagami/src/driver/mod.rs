@@ -375,12 +375,15 @@ struct BlendLimitState {
     weight: f32,
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 struct PartState {
-    initialized: bool,
+    exists: bool,
     visible_artmeshes: bool,
     visible_deformers: bool,
     depth: i32,
+    user_opacity: f32,
+    opacity: f32,
+    modified: bool,
     clean: bool,
     updated: bool,
 }
@@ -393,6 +396,7 @@ impl PartState {
         if !self.visible_deformers {
             other.visible_deformers = false;
         }
+        other.opacity *= self.opacity;
     }
 }
 
@@ -422,6 +426,7 @@ pub struct DrivenArtMesh<'a> {
 pub struct DrivenPart {
     pub updated: bool,
     pub depth: i32,
+    pub opacity: f32,
 }
 
 #[derive(Error, Debug)]
@@ -447,6 +452,21 @@ impl<T: Model> Driver<T> {
             );
         }
 
+        let mut part = ItemState::new();
+
+        for p in model.parts() {
+            part.insert(
+                p.uid(),
+                PartState {
+                    exists: true,
+                    modified: true,
+                    depth: i32::MIN,
+                    user_opacity: 1.0,
+                    ..Default::default()
+                },
+            );
+        }
+
         Self {
             param_uids,
             param,
@@ -455,7 +475,7 @@ impl<T: Model> Driver<T> {
             blend_limit: Default::default(),
             deformer: Default::default(),
             artmesh: Default::default(),
-            part: Default::default(),
+            part,
             sorted_artmeshes: Default::default(),
             order_changed: true,
             perftest_mode: false,
@@ -751,9 +771,9 @@ impl<T: Model> Driver<T> {
         }
 
         if let Some(part) = deformer.part() {
-            if !self.calc_part(model, &*part).visible_deformers {
-                visible = false;
-            }
+            self.calc_part(model, &*part);
+            let pst = &self.part[part.uid()];
+            visible = visible && pst.visible_deformers;
         }
 
         if !changed && !self.perftest_mode {
@@ -819,37 +839,29 @@ impl<T: Model> Driver<T> {
         self.part.clear();
     }
 
-    fn calc_part<'a>(&mut self, model: &'a T, part: &T::Part<'a>) -> &PartState {
+    fn calc_part<'a>(&mut self, model: &'a T, part: &T::Part<'a>) -> bool {
         let st = self.part.lookup(part.uid());
         if st.clean {
-            return &self.part[part.uid()];
+            return st.updated;
         }
+
         st.clean = true;
 
-        let mut changed = false;
+        let user_opacity = st.user_opacity;
+        let mut changed = st.modified;
 
-        if !st.initialized {
-            let mut st = PartState {
-                initialized: true,
-                visible_artmeshes: part.visible_artmeshes(),
-                visible_deformers: part.visible_deformers(),
-                depth: i32::MIN,
-                clean: true,
-                updated: true,
-            };
-            if let Some(parent) = part.parent() {
-                let pst = self.calc_part(model, &*parent);
-                pst.apply(&mut st);
-            }
-            changed = true;
-            self.part.insert(part.uid(), st);
+        if let Some(parent) = part.parent() {
+            let parent_changed = self.calc_part(model, &*parent);
+            changed = changed || parent_changed;
         }
 
-        for pm in part.param_maps().into_iter() {
-            let pm_state = &self.param_map[pm.uid()];
-            if !pm_state.clean {
-                changed = true;
-                break;
+        if !changed {
+            for pm in part.param_maps().into_iter() {
+                let pm_state = &self.param_map[pm.uid()];
+                if !pm_state.clean {
+                    changed = true;
+                    break;
+                }
             }
         }
 
@@ -869,12 +881,24 @@ impl<T: Model> Driver<T> {
         }
 
         if !changed && !self.perftest_mode {
-            return &self.part[part.uid()];
+            return false;
         }
 
         trace!(">> Update part #{} {}", part.uid(), part.id());
 
-        let depth = if let Some((forms, weights)) = self.get_form_set(
+        let mut st = PartState {
+            exists: true,
+            visible_artmeshes: part.visible_artmeshes(),
+            visible_deformers: part.visible_deformers(),
+            depth: 0,
+            user_opacity,
+            opacity: user_opacity,
+            modified: false,
+            clean: true,
+            updated: false,
+        };
+
+        st.depth = if let Some((forms, weights)) = self.get_form_set(
             model,
             part.param_maps(),
             part.forms(),
@@ -888,19 +912,25 @@ impl<T: Model> Driver<T> {
             0
         };
 
-        let st = self.part.get_mut(part.uid());
-
-        if depth != st.depth {
-            st.depth = depth;
-            st.updated = true;
-            self.order_changed = true;
-        } else {
-            st.updated = false;
+        if let Some(parent) = part.parent() {
+            self.part[parent.uid()].apply(&mut st);
         }
 
-        trace!("<< Updated part #{} {}: {:?}", part.uid(), part.id(), st);
+        let cur = self.part.get_mut(part.uid());
 
-        return st;
+        if cur.depth != st.depth {
+            st.updated = true;
+            self.order_changed = true;
+        }
+        if cur.opacity != st.opacity {
+            st.updated = true;
+        }
+
+        *cur = st;
+
+        trace!("<< Updated part #{} {}: {:?}", part.uid(), part.id(), cur);
+
+        return cur.updated;
     }
 
     pub fn drive(&mut self, model: &T) {
@@ -1037,6 +1067,7 @@ impl<T: Model> Driver<T> {
             st.updated = false;
             st.initialized = true;
             let old_depth = if !st.initialized { i32::MIN } else { st.depth };
+            let mut part_opacity = 1.0;
 
             // Mark empty ArtMeshes as invisible, for convenience in the renderer
             // (consolidates special cases)
@@ -1050,7 +1081,11 @@ impl<T: Model> Driver<T> {
             }
 
             if let Some(part) = artmesh.part() {
-                visible = visible && self.calc_part(model, &*part).visible_artmeshes;
+                let part_changed = self.calc_part(model, &*part);
+                changed = changed || part_changed;
+                let pst = &self.part[part.uid()];
+                visible = visible && pst.visible_artmeshes;
+                part_opacity = pst.opacity;
             }
 
             if visible && !changed {
@@ -1133,6 +1168,8 @@ impl<T: Model> Driver<T> {
             if depth != old_depth {
                 self.order_changed = true;
             }
+
+            visual.opacity *= part_opacity;
 
             debug!("Updated ArtMesh #{}: {}", artmesh.uid(), artmesh.id());
             let st = ArtMeshState {
@@ -1281,12 +1318,14 @@ impl<T: Model> Driver<T> {
 
     pub fn part_state(&self, uid: T::Uid) -> Option<DrivenPart> {
         let st = self.part.get(uid)?;
-        if !st.initialized {
+        // depth min means drive() was not called yet
+        if !st.exists || st.depth == i32::MIN {
             return None;
         }
         Some(DrivenPart {
             updated: st.updated,
             depth: st.depth,
+            opacity: st.opacity,
         })
     }
 
