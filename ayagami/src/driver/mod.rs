@@ -1171,6 +1171,7 @@ impl<T: Model> Driver<T> {
                 let st = ArtMeshState {
                     initialized: true,
                     updated: true,
+                    depth: old_depth,
                     ..Default::default()
                 };
                 self.artmesh.insert(artmesh.uid(), st);
