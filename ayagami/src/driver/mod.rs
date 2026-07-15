@@ -1366,7 +1366,7 @@ impl<T: Model> Driver<T> {
         self.order_changed
     }
 
-    pub fn sorted_artmeshes(&self) -> &Vec<T::Uid> {
+    pub fn sorted_artmeshes(&self) -> &[T::Uid] {
         &self.sorted_artmeshes
     }
 }
