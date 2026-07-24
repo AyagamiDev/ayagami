@@ -304,10 +304,10 @@ impl ParsedModel {
         Ok(m)
     }
 
-    fn default_colors(&mut self, count: u32) -> i32 {
+    fn default_colors(&mut self, count: u32) -> u32 {
         assert!(self.multiply_color.count == self.screen_color.count);
 
-        let ret = self.multiply_color.count as i32;
+        let ret = self.multiply_color.count as u32;
 
         let new_count = self.multiply_color.count + count as usize;
 
@@ -355,21 +355,15 @@ impl ParsedModel {
             self.param.cnt_blend_maps = flat_vec(self.param.count, 0);
 
             debug!("Upgrading colors from < V4.2 to V5.0");
+            let idx = self.default_colors(1);
             self.art_mesh_form.i_multiply_color =
                 flat_vec(self.art_mesh_form.count, IMultiplyColor(0));
-            self.art_mesh_form.i_screen_color = flat_vec(self.art_mesh_form.count, IScreenColor(0));
-            self.warp_form.i_multiply_color = flat_vec(self.warp_form.count, IMultiplyColor(0));
-            self.warp_form.i_screen_color = flat_vec(self.warp_form.count, IScreenColor(0));
-            self.rot_form.i_multiply_color = flat_vec(self.rot_form.count, IMultiplyColor(0));
-            self.rot_form.i_screen_color = flat_vec(self.rot_form.count, IScreenColor(0));
-            self.multiply_color.count = 1;
-            self.multiply_color.r = vec![1.0];
-            self.multiply_color.g = vec![1.0];
-            self.multiply_color.b = vec![1.0];
-            self.screen_color.count = 1;
-            self.screen_color.r = vec![0.0];
-            self.screen_color.g = vec![0.0];
-            self.screen_color.b = vec![0.0];
+            self.art_mesh_form.i_screen_color =
+                flat_vec(self.art_mesh_form.count, IScreenColor(idx));
+            self.warp_form.i_multiply_color = flat_vec(self.warp_form.count, IMultiplyColor(idx));
+            self.warp_form.i_screen_color = flat_vec(self.warp_form.count, IScreenColor(idx));
+            self.rot_form.i_multiply_color = flat_vec(self.rot_form.count, IMultiplyColor(idx));
+            self.rot_form.i_screen_color = flat_vec(self.rot_form.count, IScreenColor(idx));
         } else if ver < Version::V5_0 {
             debug!("Upgrading colors from V4.2 to V5.0");
             self.art_mesh_form
