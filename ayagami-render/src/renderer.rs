@@ -97,7 +97,7 @@ impl<T: Model> ClipSet<T> {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
+                    resource: wgpu::BindingResource::Sampler(sampler),
                 },
             ],
             label: Some(&label),
@@ -528,15 +528,15 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
     ) -> wgpu::RenderPipeline {
         device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Mask Render Pipeline"),
-            layout: Some(&pipeline_layout),
+            layout: Some(pipeline_layout),
             vertex: wgpu::VertexState {
-                module: &shader,
+                module: shader,
                 entry_point: Some("vs_main"),
                 buffers: &[Vertex::desc(), TexCoord::desc()],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
-                module: &shader,
+                module: shader,
                 entry_point: Some("fs_render_mask"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: wgpu::TextureFormat::R8Unorm,
@@ -635,11 +635,11 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
     pub fn reload_model(&mut self, model: R) -> Result<()> {
         let m = model.as_ref();
 
-        let driver = Driver::new(&*m);
+        let driver = Driver::new(m);
 
         let vertex_buffer = self.stat.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Vertex Buffer"),
-            size: (core::mem::size_of::<Vec2>() * m.texcoord_buffer().unwrap().len()) as u64,
+            size: std::mem::size_of_val(m.texcoord_buffer().unwrap()) as u64,
             mapped_at_creation: false,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
@@ -880,7 +880,7 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
                 clip_set.dirty.set(true);
             }
             for uid in clip_set.targets.iter() {
-                let am_data = md.artmesh_data.get(&uid).unwrap();
+                let am_data = md.artmesh_data.get(uid).unwrap();
                 if am_data.dirty {
                     clip_set.dirty.set(true);
                 }
@@ -911,7 +911,7 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
         for clip_set in md.clip_sets.iter_mut() {
             if clip_set.cur_use_count != 0 {
                 for uid in clip_set.targets.iter() {
-                    let am_data = md.artmesh_data.get_mut(&uid).unwrap();
+                    let am_data = md.artmesh_data.get_mut(uid).unwrap();
                     am_data.clip_use_count += 1;
                 }
             }
@@ -944,7 +944,7 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
                     mask_invert: if artmesh.invert_mask() { 1 } else { 0 },
                 };
 
-                let off = am_data.uniform_offset as usize;
+                let off = am_data.uniform_offset;
                 am_buf_view
                     .slice(off..off + core::mem::size_of::<ArtMeshUniform>())
                     .copy_from_slice(bytemuck::cast_slice(&[artmesh_uniforms]));
@@ -1028,7 +1028,7 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
 
                 let texcoord_off = artmesh.texcoord_offset() as u64;
                 let vtx_off = artmesh.texcoord_offset() as i32;
-                render_pass.set_vertex_buffer(0, md.vertex_buffer.slice(8 * texcoord_off as u64..));
+                render_pass.set_vertex_buffer(0, md.vertex_buffer.slice(8 * texcoord_off..));
                 render_pass.set_vertex_buffer(1, md.texcoord_buffer.slice(8 * texcoord_off..));
 
                 trace!(
@@ -1093,7 +1093,7 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
 
             let texcoord_off = artmesh.texcoord_offset() as u64;
             let vtx_off = artmesh.texcoord_offset() as i32;
-            render_pass.set_vertex_buffer(0, md.vertex_buffer.slice(8 * texcoord_off as u64..));
+            render_pass.set_vertex_buffer(0, md.vertex_buffer.slice(8 * texcoord_off..));
             render_pass.set_vertex_buffer(1, md.texcoord_buffer.slice(8 * texcoord_off..));
 
             let mut vmin = Vec2::INFINITY;

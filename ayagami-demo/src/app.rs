@@ -74,7 +74,7 @@ impl AyagamiTestApp {
     ) -> anyhow::Result<()> {
         use std::path::PathBuf;
 
-        let mut model3 = 'out: loop {
+        let mut model3 = 'out: {
             for i in 0..archive.len() {
                 let member = archive.by_index(i)?;
                 if member.name().ends_with(".model3.json") {
@@ -104,8 +104,7 @@ impl AyagamiTestApp {
         self.kp_param.clear();
         for param in model.params().into_iter() {
             if let Some(kp) = param.keypoints() {
-                let kps: Vec<f32> = kp.iter().cloned().collect();
-                self.kp_param.insert(param.id().to_owned(), kps);
+                self.kp_param.insert(param.id().to_owned(), kp.to_vec());
             }
         }
 
@@ -174,7 +173,7 @@ impl AyagamiTestApp {
 
         let renderer = Arc::new(Mutex::new(renderer));
 
-        let format = render_state.target_format.into();
+        let format = render_state.target_format;
 
         render_state
             .renderer
@@ -310,21 +309,17 @@ impl AyagamiTestApp {
                 }
                 let res = ui.add(egui::Slider::new(value, param.min..=param.max).text(label));
                 if res.changed() {
-                    if res.ctx.input(|input| input.modifiers.shift) {
-                        if let Some(closest) = kp_param
-                            .get(&param.id)
-                            .map(|v| {
-                                v.iter().min_by(|a, b| {
-                                    (*a - *value)
-                                        .abs()
-                                        .partial_cmp(&(*b - *value).abs())
-                                        .unwrap()
-                                })
+                    if res.ctx.input(|input| input.modifiers.shift)
+                        && let Some(closest) = kp_param.get(&param.id).and_then(|v| {
+                            v.iter().min_by(|a, b| {
+                                (*a - *value)
+                                    .abs()
+                                    .partial_cmp(&(*b - *value).abs())
+                                    .unwrap()
                             })
-                            .flatten()
-                        {
-                            *value = *closest;
-                        }
+                        })
+                    {
+                        *value = *closest;
                     }
                     renderer.set_param(param.uid, *value);
                 }
@@ -380,7 +375,7 @@ impl AyagamiTestApp {
                         &mut self.state,
                         &self.info_param,
                         &self.kp_param,
-                        &mut *renderer,
+                        &mut renderer,
                         ui,
                         &group.id,
                     );
@@ -392,9 +387,9 @@ impl AyagamiTestApp {
             &mut self.state,
             &self.info_param,
             &self.kp_param,
-            &mut *renderer,
+            &mut renderer,
             ui,
-            &"",
+            "",
         );
     }
 }
@@ -531,7 +526,7 @@ impl egui_wgpu::CallbackTrait for ModelView {
         let res: &mut RenderResources = callback_resources.get_mut().unwrap();
 
         let opts = RenderOptions {
-            transform: self.transform.clone(),
+            transform: self.transform,
             mask_dimensions: self.dims_px.as_uvec2(),
             colorspace: RenderColorspace::SRgb,
         };

@@ -139,9 +139,9 @@ impl<'a> SectionReader<'a> {
     }
 
     pub(crate) fn read_u32_into(&mut self, d: &mut [u32]) -> Result<(), ParseError> {
-        let ret = self.rdr.read_u32_into::<LittleEndian>(d)?;
+        self.rdr.read_u32_into::<LittleEndian>(d)?;
         self.p += 4 * d.len();
-        Ok(ret)
+        Ok(())
     }
 
     pub(crate) fn next_section(&mut self) -> Result<(), ParseError> {
@@ -263,15 +263,13 @@ impl ParsedModel {
         rdr.advance_to(0x40)?;
 
         let nsects = Self::num_sections(ver);
-        let mut offsets = Vec::new();
-        offsets.resize(nsects, 0);
+        let mut offsets = vec![0; nsects];
         rdr.read_u32_into(&mut offsets)?;
         rdr.offsets = offsets;
 
         // First section: Object counts
         rdr.next_section();
-        let mut counts: Vec<u32> = Vec::new();
-        counts.resize(Self::num_classes(ver), 0);
+        let mut counts: Vec<u32> = vec![0; Self::num_classes(ver)];
         rdr.read_u32_into(&mut counts)?;
 
         // Second section: Canvas properties
@@ -395,32 +393,27 @@ impl ParsedModel {
 
             for i in 0..self.art_mesh.count {
                 let v = ArtMeshView::get(self, IArtMesh::new(i as u32)).unwrap();
-                let mut color = *v.f_i_color_forms();
                 let r = v.range_forms();
-                for j in r.start.0..r.end.0 {
+                for (color, j) in (*v.f_i_color_forms()..).zip(r.start.0..r.end.0) {
                     self.art_mesh_form.i_multiply_color[j as usize] = IMultiplyColor(color);
                     self.art_mesh_form.i_screen_color[j as usize] = IScreenColor(color);
-                    color += 1;
                 }
             }
             for i in 0..self.rot_deformer.count {
                 let v = RotDeformerView::get(self, IRotDeformer::new(i as u32)).unwrap();
                 let mut color = *v.f_i_color_forms();
                 let r = v.range_forms();
-                for j in r.start.0..r.end.0 {
+                for (color, j) in (*v.f_i_color_forms()..).zip(r.start.0..r.end.0) {
                     self.rot_form.i_multiply_color[j as usize] = IMultiplyColor(color);
                     self.rot_form.i_screen_color[j as usize] = IScreenColor(color);
-                    color += 1;
                 }
             }
             for i in 0..self.warp_deformer.count {
                 let v = WarpDeformerView::get(self, IWarpDeformer::new(i as u32)).unwrap();
-                let mut color = *v.f_i_color_forms();
                 let r = v.range_forms();
-                for j in r.start.0..r.end.0 {
+                for (color, j) in (*v.f_i_color_forms()..).zip(r.start.0..r.end.0) {
                     self.warp_form.i_multiply_color[j as usize] = IMultiplyColor(color);
                     self.warp_form.i_screen_color[j as usize] = IScreenColor(color);
-                    color += 1;
                 }
             }
         }

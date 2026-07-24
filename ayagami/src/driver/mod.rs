@@ -746,7 +746,7 @@ impl<T: Model> Driver<T> {
 
         st.clean = true;
 
-        let mut changed = !st.sub.is_some();
+        let mut changed = st.sub.is_none();
 
         for pm in deformer.param_maps().into_iter() {
             let pm_state = &self.param_map[pm.uid()];
@@ -768,7 +768,7 @@ impl<T: Model> Driver<T> {
                     return true;
                 }
             }
-            return false;
+            false
         }
 
         match deformer.typed() {
@@ -856,7 +856,7 @@ impl<T: Model> Driver<T> {
         st.updated = true;
         st.sub = Some(new_state);
 
-        return true;
+        true
     }
 
     pub fn deformer_tree_changed(&mut self) {
@@ -962,7 +962,7 @@ impl<T: Model> Driver<T> {
 
         trace!("<< Updated part #{} {}: {:?}", part.uid(), part.id(), cur);
 
-        return cur.updated;
+        cur.updated
     }
 
     pub fn drive(&mut self, model: &T) {
@@ -986,7 +986,7 @@ impl<T: Model> Driver<T> {
                     mstate.clean = false;
                     let kp = keypoints;
                     mstate.value = None;
-                    if kp.len() < 1 {
+                    if kp.is_empty() {
                         warn!(
                             "{} #{} (param #{} {}) has zero keypoints: {:?}",
                             tname,
@@ -1103,7 +1103,7 @@ impl<T: Model> Driver<T> {
 
             // Mark empty ArtMeshes as invisible, for convenience in the renderer
             // (consolidates special cases)
-            let mut visible = artmesh.vertex_count() > 0 && artmesh.index_range().len() > 0;
+            let mut visible = artmesh.vertex_count() > 0 && !artmesh.index_range().is_empty();
 
             if let Some(deformer) = artmesh.deformer() {
                 let deformer_changed = self.calc_deformer(model, &*deformer);
@@ -1221,7 +1221,7 @@ impl<T: Model> Driver<T> {
         let r = 0..model.glues().count();
         loop {
             let mut progress = false;
-            for i in r.clone().into_iter().chain(r.clone().rev().into_iter()) {
+            for i in r.clone().chain(r.clone().rev()) {
                 let glue = model.glues().index(i).unwrap();
                 let uid_1 = glue.artmesh_1().uid();
                 let uid_2 = glue.artmesh_2().uid();

@@ -241,8 +241,7 @@ impl<'model> core::ArtMesh<'model> for ArtMeshView<'model> {
     fn clips(&self) -> impl IntoIterator<Item = impl Deref<Target = ArtMeshView<'model>>> {
         let cl = self.clips_views();
         cl.into_iter()
-            .map(|i| i.artmesh_view().map(|v| v.into_ref()))
-            .flatten()
+            .filter_map(|i| i.artmesh_view().map(|v| v.into_ref()))
             .collect::<Vec<_>>()
     }
 
@@ -541,10 +540,7 @@ impl<'a, T: 'a + View<'a> + Sized> Iterator for ItemIterator<'a, T> {
         if self.idx >= self.limit {
             return None;
         }
-        let mut ret = T::get(
-            self.model,
-            <T::Object as RawObject>::Idx::new(self.idx as u32),
-        );
+        let mut ret = T::get(self.model, <T::Object as RawObject>::Idx::new(self.idx));
         if let Some(view) = ret.as_mut() {
             if let Some(idx) = self.parent {
                 view.set_parent_idx(idx);

@@ -260,6 +260,7 @@ impl State {
     }
 
     fn handle_key(&mut self, event_loop: &ActiveEventLoop, key: KeyCode, pressed: bool) {
+        #[allow(clippy::single_match)]
         match (key, pressed) {
             (KeyCode::Escape, true) => event_loop.exit(),
             _ => {}

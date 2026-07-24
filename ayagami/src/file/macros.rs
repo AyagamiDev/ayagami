@@ -528,6 +528,7 @@ macro_rules! declare_primitive {
             impl Parsable for [<$obj Fields>] {
                 fn parse(&mut self, pass: Pass, data: &mut SectionReader) -> Result<(), ParseError> {
                     if pass as usize == Pass::$pass as usize {
+                        #[allow(clippy::modulo_one)]
                         if self.count % [<$obj:snake:upper _STRIDE>] != 0 {
                             return Err(ParseError::UnalignedItemCount(
                                 stringify!($obj),
@@ -549,6 +550,7 @@ macro_rules! declare_primitive {
 
                 fn get_index(idx: [<I $obj>]) -> usize {
                     let i = idx.0 as usize;
+                    #[allow(clippy::modulo_one)]
                     if i % [<$obj:snake:upper _STRIDE>] != 0 {
                         panic!("Unaligned index {:?}", idx);
                     }

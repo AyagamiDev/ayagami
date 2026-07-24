@@ -126,7 +126,7 @@ where
     let l = n & !(STRIDE - 1);
     for src in srcs.iter() {
         let src: &[f32] = transmute_ref!(*src);
-        src[n - 1];
+        assert!(src.len() >= n);
     }
     for i in (0..l).step_by(STRIDE) {
         dst[i..i + STRIDE].fill(0.);

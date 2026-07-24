@@ -21,7 +21,7 @@ You can also build and run the demo as a native app by running `cargo run -r` in
 
 The API is pretty unstable and subject to change, and there is no documentation yet! crates.io release coming soon. For now, take a look at `ayagami-demo` for a usage example.
 
-The code is messy and I haven't even run it though clippy yet. I'm releasing this early to get feedback on the API and start enabling users, but expect significant cleanup over time.
+The code is messy; I'm releasing this early to get feedback on the API and start enabling users, but expect significant cleanup over time.
 
 ### Supported features
 
