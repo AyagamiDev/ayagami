@@ -1,23 +1,10 @@
-#![allow(unused)]
-
 use super::parse::{Parsable, ParseError, ReadArray, SectionReader};
-use super::types::*;
 use super::types::*;
 use super::{Pass, Version};
 use crate::core;
-use byteorder::LittleEndian;
-use byteorder::ReadBytesExt;
-use log::{debug, info, warn};
 use paste::paste;
-use std::marker::PhantomData;
-use std::{
-    io::Read,
-    ops::{Deref, Range},
-};
-use strum::VariantArray;
+use std::ops::Range;
 use strum_macros::FromRepr;
-use thiserror::Error;
-use zerocopy_derive::FromBytes;
 
 use Version::*;
 

@@ -61,28 +61,28 @@ impl UidType for Sequential {
     type Collection<D, S> = D;
     fn do_new<D, S>(
         sequential: impl FnOnce() -> D,
-        sparse: impl FnOnce() -> S,
+        _sparse: impl FnOnce() -> S,
     ) -> Self::Collection<D, S> {
         sequential()
     }
     fn do_visit<'a, D: 'a, S: 'a, R>(
         collection: &'a Self::Collection<D, S>,
         sequential: impl FnOnce(&'a D) -> R,
-        sparse: impl FnOnce(&'a S) -> R,
+        _sparse: impl FnOnce(&'a S) -> R,
     ) -> R {
         sequential(collection)
     }
     fn do_visit_mut<'a, D: 'a, S: 'a, R>(
         collection: &'a mut Self::Collection<D, S>,
         sequential: impl FnOnce(&'a mut D) -> R,
-        sparse: impl FnOnce(&'a mut S) -> R,
+        _sparse: impl FnOnce(&'a mut S) -> R,
     ) -> R {
         sequential(collection)
     }
     fn do_put_mut<'a, D: 'a, S: 'a, T, R>(
         collection: &'a mut Self::Collection<D, S>,
         sequential: impl FnOnce(&'a mut D, T) -> R,
-        sparse: impl FnOnce(&'a mut S, T) -> R,
+        _sparse: impl FnOnce(&'a mut S, T) -> R,
         args: T,
     ) -> R {
         sequential(collection, args)
@@ -92,28 +92,28 @@ impl UidType for Sequential {
 impl UidType for Sparse {
     type Collection<D, S> = S;
     fn do_new<D, S>(
-        sequential: impl FnOnce() -> D,
+        _sequential: impl FnOnce() -> D,
         sparse: impl FnOnce() -> S,
     ) -> Self::Collection<D, S> {
         sparse()
     }
     fn do_visit<'a, D: 'a, S: 'a, R>(
         collection: &'a Self::Collection<D, S>,
-        sequential: impl FnOnce(&'a D) -> R,
+        _sequential: impl FnOnce(&'a D) -> R,
         sparse: impl FnOnce(&'a S) -> R,
     ) -> R {
         sparse(collection)
     }
     fn do_visit_mut<'a, D: 'a, S: 'a, R>(
         collection: &'a mut Self::Collection<D, S>,
-        sequential: impl FnOnce(&'a mut D) -> R,
+        _sequential: impl FnOnce(&'a mut D) -> R,
         sparse: impl FnOnce(&'a mut S) -> R,
     ) -> R {
         sparse(collection)
     }
     fn do_put_mut<'a, D: 'a, S: 'a, T, R>(
         collection: &'a mut Self::Collection<D, S>,
-        sequential: impl FnOnce(&'a mut D, T) -> R,
+        _sequential: impl FnOnce(&'a mut D, T) -> R,
         sparse: impl FnOnce(&'a mut S, T) -> R,
         args: T,
     ) -> R {

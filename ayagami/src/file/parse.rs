@@ -1,24 +1,16 @@
-#![allow(unused)]
-
 use super::classes::*;
 use super::types::*;
 use super::{Pass, Version};
 use crate::core;
 use crate::core::Model;
-use crate::file::Pass::V3_0;
 use ParseError::*;
 use byteorder::LittleEndian;
 use byteorder::ReadBytesExt;
-use log::{debug, info, warn};
+use log::debug;
 use paste::paste;
 use std::io::Read;
-use std::ops::Deref;
-#[macro_use]
-use strum_macros::{FromRepr};
 use strum::VariantArray;
 use thiserror::Error;
-use zerocopy::transmute_mut;
-use zerocopy_derive::{FromBytes, FromZeros, IntoBytes};
 
 #[derive(Error, Debug)]
 pub enum ParseError {
@@ -205,39 +197,6 @@ impl ParsedModel {
     pub fn load(rdr: &mut impl Read) -> Result<ParsedModel, ParseError> {
         use ParseError::*;
 
-        fn advance(rdr: &mut impl Read, p: &mut usize, to: u32) -> Result<(), ParseError> {
-            const MAX_SKIP: usize = 0x1000;
-            let mut buf = [0; MAX_SKIP];
-
-            let to = to as usize;
-            if to < *p {
-                Err(InvalidOffset(format!(
-                    "Tried to seek from {0:#x} to {1:#x}",
-                    *p, to
-                )))
-            } else if to == *p {
-                Ok(())
-            } else {
-                let skip = to - *p;
-                // Should only skip padding, not large blocks
-                if skip > MAX_SKIP {
-                    Err(InvalidOffset(format!(
-                        "Tried to seek from {0:#x} to {1:#x} ({2:#x} bytes > {3:#x})",
-                        *p, to, skip, MAX_SKIP
-                    )))
-                } else {
-                    rdr.read_exact(&mut buf[..skip])?;
-                    for (i, b) in buf[..skip].iter().enumerate() {
-                        if *b != 0 {
-                            return Err(InvalidPadding(*p + i, *b));
-                        }
-                    }
-                    *p = to;
-                    Ok(())
-                }
-            }
-        }
-
         let mut rdr = SectionReader {
             rdr,
             p: 0,
@@ -268,12 +227,12 @@ impl ParsedModel {
         rdr.offsets = offsets;
 
         // First section: Object counts
-        rdr.next_section();
+        rdr.next_section()?;
         let mut counts: Vec<u32> = vec![0; Self::num_classes(ver)];
         rdr.read_u32_into(&mut counts)?;
 
         // Second section: Canvas properties
-        rdr.next_section();
+        rdr.next_section()?;
         let canvas = Canvas {
             scale: rdr.read_f32()?,
             center_x: rdr.read_f32()?,
@@ -395,7 +354,6 @@ impl ParsedModel {
             }
             for i in 0..self.rot_deformer.count {
                 let v = RotDeformerView::get(self, IRotDeformer::new(i as u32)).unwrap();
-                let mut color = *v.f_i_color_forms();
                 let r = v.range_forms();
                 for (color, j) in (*v.f_i_color_forms()..).zip(r.start.0..r.end.0) {
                     self.rot_form.i_multiply_color[j as usize] = IMultiplyColor(color);

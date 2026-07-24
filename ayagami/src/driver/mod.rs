@@ -542,7 +542,7 @@ impl<T: Model> Driver<T> {
 
     fn get_form_set<'a, F>(
         &self,
-        model: &'a T,
+        _model: &'a T,
         maps: impl IntoIterator<Item = impl Deref<Target = T::ParamMap<'a>>>,
         forms: impl ItemArray<'a, F>,
         blends: Option<impl IntoIterator<Item = impl Deref<Target: BlendFormMap<'a, Form = F>>>>,

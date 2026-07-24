@@ -1,15 +1,10 @@
-#![allow(unused)]
-
 use std::{
     collections::HashMap,
-    default,
-    io::{self, Cursor, Read, Seek},
-    iter,
+    io::{Cursor, Read, Seek},
     sync::{Arc, Mutex},
 };
 
 use anyhow::anyhow;
-use wgpu::util::DeviceExt;
 
 use ayagami::{core::ItemArray, meta};
 use ayagami::{
@@ -17,7 +12,7 @@ use ayagami::{
     file,
 };
 use ayagami_render::*;
-use glam::f32::{Affine2, Mat3, Vec2, vec2};
+use glam::f32::{Affine2, Vec2, vec2};
 use log::{error, info};
 use std::{env, fs::File};
 
@@ -27,7 +22,7 @@ use wasm_bindgen::prelude::*;
 use winit::platform::web::EventLoopExtWebSys;
 
 use eframe::{
-    egui::{self, Color32, LayerId},
+    egui::{self, Color32},
     egui_wgpu,
 };
 
@@ -57,12 +52,10 @@ struct RenderResources {
 
 impl AyagamiTestApp {
     fn load_startup_model(&mut self) -> anyhow::Result<()> {
-        use std::ops::Index;
-
         let args: Vec<String> = env::args().collect();
         if let Some(filename) = args.get(1) {
-            let mut zipf = File::open(&args[1])?;
-            let mut archive = zip::ZipArchive::new(zipf)?;
+            let zipf = File::open(filename)?;
+            let archive = zip::ZipArchive::new(zipf)?;
             self.load_model(archive)?;
         }
         Ok(())
@@ -74,7 +67,7 @@ impl AyagamiTestApp {
     ) -> anyhow::Result<()> {
         use std::path::PathBuf;
 
-        let mut model3 = 'out: {
+        let model3 = 'out: {
             for i in 0..archive.len() {
                 let member = archive.by_index(i)?;
                 if member.name().ends_with(".model3.json") {
@@ -130,7 +123,7 @@ impl AyagamiTestApp {
         if let Some(cdi_name) = info.file_references.display_info {
             info!("Loading display info...");
             let cdi_path = base.join(cdi_name);
-            let mut cdi = archive.by_path(&cdi_path)?;
+            let cdi = archive.by_path(&cdi_path)?;
             let info: meta::DisplayInfo = serde_json::from_reader(cdi)?;
 
             for param in info.parameters.iter() {
@@ -169,7 +162,7 @@ impl AyagamiTestApp {
         let device = render_state.device.clone();
         let queue = render_state.queue.clone();
 
-        let mut renderer = ModelRenderer::new(device, queue).expect("ModelRenderer init");
+        let renderer = ModelRenderer::new(device, queue).expect("ModelRenderer init");
 
         let renderer = Arc::new(Mutex::new(renderer));
 
@@ -210,11 +203,11 @@ impl AyagamiTestApp {
 
         // Apply zoom (scroll + pinch-to-zoom)
         if response.hovered() {
-            let e = &response.ctx.input(|r| {
+            response.ctx.input(|r| {
                 let rel_cursor = r
                     .pointer
                     .interact_pos()
-                    .map(|p| ((p - rect.center()) / rect.size() * 2.))
+                    .map(|p| (p - rect.center()) / rect.size() * 2.)
                     .unwrap_or_default();
                 let cpos = Affine2::from_translation(vec2(rel_cursor.x, -rel_cursor.y));
                 let dy = r.smooth_scroll_delta().y / 200.0;
@@ -240,7 +233,7 @@ impl AyagamiTestApp {
         let bot_right_px = vec2(right_px, bottom_px);
         let dims_px = bot_right_px - top_left_px;
 
-        let mut scale = if dims_px.x > dims_px.y {
+        let scale = if dims_px.x > dims_px.y {
             vec2(dims_px.y / dims_px.x, 1.)
         } else {
             vec2(1., dims_px.x / dims_px.y)
@@ -253,7 +246,6 @@ impl AyagamiTestApp {
             ModelView {
                 top_left_px,
                 dims_px,
-                rect,
                 transform,
             },
         );
@@ -305,7 +297,7 @@ impl AyagamiTestApp {
             ui.horizontal(|ui| {
                 if ui.button("🔄").clicked() {
                     *value = param.default;
-                    renderer.set_param(param.uid, param.default);
+                    renderer.set_param(param.uid, param.default).unwrap();
                 }
                 let res = ui.add(egui::Slider::new(value, param.min..=param.max).text(label));
                 if res.changed() {
@@ -321,7 +313,7 @@ impl AyagamiTestApp {
                     {
                         *value = *closest;
                     }
-                    renderer.set_param(param.uid, *value);
+                    renderer.set_param(param.uid, *value).unwrap();
                 }
             });
         }
@@ -424,11 +416,11 @@ impl eframe::App for AyagamiTestApp {
             if let Some(f) = inp.raw.dropped_files.pop() {
                 if let Some(p) = f.path {
                     info!("File dropped (path: {})", p.to_string_lossy());
-                    let Ok(mut zipf) = File::open(&p) else {
+                    let Ok(zipf) = File::open(&p) else {
                         error!("Failed to open file {}", p.to_string_lossy());
                         return;
                     };
-                    let Ok(mut archive) = zip::ZipArchive::new(zipf) else {
+                    let Ok(archive) = zip::ZipArchive::new(zipf) else {
                         error!("Failed to parse zip file");
                         return;
                     };
@@ -438,7 +430,7 @@ impl eframe::App for AyagamiTestApp {
                 } else if let Some(b) = f.bytes {
                     info!("File dropped ({} bytes)", b.len());
                     let c = Cursor::new(b);
-                    let Ok(mut archive) = zip::ZipArchive::new(c) else {
+                    let Ok(archive) = zip::ZipArchive::new(c) else {
                         error!("Failed to parse zip file");
                         return;
                     };
@@ -495,7 +487,6 @@ impl eframe::App for AyagamiTestApp {
 }
 
 struct ModelView {
-    rect: egui::Rect,
     top_left_px: Vec2,
     dims_px: Vec2,
     transform: Affine2,
@@ -512,17 +503,12 @@ impl egui_wgpu::CallbackTrait for ModelView {
     // can be used to issue draw commands.
     fn prepare(
         &self,
-        device: &wgpu::Device,
+        _device: &wgpu::Device,
         _queue: &wgpu::Queue,
-        screen_descriptor: &egui_wgpu::ScreenDescriptor,
+        _screen_descriptor: &egui_wgpu::ScreenDescriptor,
         egui_encoder: &mut wgpu::CommandEncoder,
         callback_resources: &mut egui_wgpu::CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
-        let dims = self.rect.size();
-        //println!("dims: {:?} {:?}", dims, self.dims_px);
-
-        let scale = screen_descriptor.pixels_per_point;
-
         let res: &mut RenderResources = callback_resources.get_mut().unwrap();
 
         let opts = RenderOptions {
@@ -538,7 +524,7 @@ impl egui_wgpu::CallbackTrait for ModelView {
 
     fn paint(
         &self,
-        info: egui::PaintCallbackInfo,
+        _info: egui::PaintCallbackInfo,
         render_pass: &mut eframe::wgpu::RenderPass<'static>,
         callback_resources: &egui_wgpu::CallbackResources,
     ) {

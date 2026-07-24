@@ -5,12 +5,11 @@
 
 use crate::renderer::RendererError;
 use anyhow::*;
-use image::{GenericImageView, ImageReader, Pixel};
-use log::{error, info};
+use image::{GenericImageView, ImageReader};
+use log::info;
 use std::{io::Cursor, iter};
 
 pub struct Texture {
-    #[allow(unused)]
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
@@ -33,7 +32,7 @@ impl Texture {
 
         let mut reader = ImageReader::new(Cursor::new(bytes));
         reader.limits(limits);
-        let mut reader = reader.with_guessed_format()?;
+        let reader = reader.with_guessed_format()?;
         let img = reader.decode()?;
 
         Self::from_image(device, queue, &img, Some(label)).with_context(|| {
@@ -70,7 +69,7 @@ impl Texture {
         }
 
         info!("{:?}: Converting to RGBA8", label);
-        let mut rgba = img.to_rgba8();
+        let rgba = img.to_rgba8();
 
         info!("{:?}: Loading into GPU", label);
         let dimensions = img.dimensions();

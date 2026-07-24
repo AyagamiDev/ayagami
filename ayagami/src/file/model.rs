@@ -1,21 +1,18 @@
-#![allow(unused)]
 use std::{
     marker::PhantomData,
-    ops::{Deref, Index, Range},
+    ops::{Deref, Range},
 };
 
 use super::classes::*;
 use crate::{
-    core::{self, ArtMesh, ItemArray, RotForm},
+    core::{self, ItemArray},
     file::types::*,
 };
-use core::Collection;
 use glam::{
     f32::vec2,
     u32::{UVec2, uvec2},
 };
 use paste::paste;
-use private::*;
 
 ///////////// Macros
 

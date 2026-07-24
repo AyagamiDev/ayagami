@@ -1,5 +1,3 @@
-#![allow(unused_variables)]
-
 #[macro_use]
 extern crate static_assertions;
 

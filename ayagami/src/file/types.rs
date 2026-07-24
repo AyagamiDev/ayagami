@@ -1,27 +1,11 @@
-#![allow(unused)]
-
-use crate::core;
-use byteorder::LittleEndian;
-use byteorder::ReadBytesExt;
-use log::{debug, info, warn};
-use paste::paste;
 use std::fmt::Debug;
-use std::io::Read;
 use std::marker::PhantomData;
 use std::ops::Deref;
-use std::ops::Index;
-use strum_macros::{FromRepr, VariantArray};
-use thiserror::Error;
-use zerocopy::transmute_mut;
-use zerocopy_derive::{FromBytes, FromZeros, IntoBytes};
+use zerocopy_derive::{FromBytes, IntoBytes};
 
-use super::Version;
-#[macro_use]
-use super::macros;
 use super::classes::ParsedModel;
 
 use super::ParseError;
-use ParseError::*;
 
 #[derive(Debug, IntoBytes, FromBytes)]
 #[repr(C)]
@@ -38,8 +22,7 @@ impl TryFrom<Identifier> for String {
     type Error = ParseError;
 
     fn try_from(ident: Identifier) -> Result<Self, ParseError> {
-        let mut s =
-            str::from_utf8(&ident.0).map_err(|a| ParseError::InvalidValue(a.to_string()))?;
+        let s = str::from_utf8(&ident.0).map_err(|a| ParseError::InvalidValue(a.to_string()))?;
         let pos = s.find('\0').unwrap_or(s.len());
         Ok(s[..pos].into())
     }

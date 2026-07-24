@@ -1,13 +1,9 @@
-#![allow(unused)]
-
-use super::parse::ReadArray;
-
 macro_rules! primitive_reader {
     ($type:ty, $fn:path) => {
         impl ReadArray for $type {
             fn read_array(dest: &mut [Self], data: &mut SectionReader) -> Result<(), ParseError> {
                 data.next_section()?;
-                $fn(data.rdr, dest);
+                $fn(data.rdr, dest)?;
                 data.p += dest.len() * std::mem::size_of::<Self>();
                 Ok(())
             }
@@ -219,8 +215,6 @@ macro_rules! impl_view_getters {
                 self.fields().[<cnt_ $field>][self.idx as usize]
             }
             pub fn [<$field _slice>](&self) -> &'model [[<$type Type>]] {
-                let i = self.fields().[<i_ $field>][self.idx as usize];
-                let cnt = self.fields().[<cnt_ $field>][self.idx as usize];
                 self.model.[<$type:snake>].slice(self.[<range_ $field>]())
             }
         }
@@ -414,6 +408,7 @@ macro_rules! declare_object {
             }
 
             impl<'model> [<$obj View>]<'model> {
+                #[allow(dead_code)]
                 pub(crate) fn idx(&self) -> [<I $obj>] {
                     [<I $obj>]::new(self.idx as u32)
                 }
@@ -480,7 +475,7 @@ macro_rules! declare_parent {
         paste! {
             impl<'a> ChildView<'a> for [<$obj View>]<'a> {
                 type Parent = $parent;
-                fn with_parent(mut self, parent: &<Self::Parent as Object>::View<'a>) -> Self {
+                fn with_parent(self, parent: &<Self::Parent as Object>::View<'a>) -> Self {
                     self.with_parent_idx(parent.idx)
                 }
                 fn with_parent_idx(mut self, idx: u32) -> Self {
@@ -503,7 +498,7 @@ macro_rules! declare_primitive {
         declare_primitive!($obj($type => $type), $pass);
     };
     ( $obj:ident($file_type:ty => $mem_type:ty ), $pass:ident ) => {
-        pub(crate) struct $obj($mem_type);
+        pub(crate) struct $obj();
 
         paste! {
             impl RawObject for $obj {
@@ -511,6 +506,7 @@ macro_rules! declare_primitive {
                 type OptIdx = [<OptI $obj>];
             }
 
+            #[allow(dead_code)]
             type [<$obj Type>] = $mem_type;
             const [<$obj:snake:upper _STRIDE>]: usize =
                 std::mem::size_of::<$mem_type>() / std::mem::size_of::<$file_type>();
@@ -537,13 +533,14 @@ macro_rules! declare_primitive {
                             ));
                         }
                         let count = self.count / [<$obj:snake:upper _STRIDE>];
-                        Self::parse_prim(&mut self.values, stringify!($obj), count, data);
+                        Self::parse_prim(&mut self.values, stringify!($obj), count, data)?;
                     }
                     Ok(())
                 }
             }
 
             impl [<$obj Fields>] {
+                #[allow(unused)]
                 pub(crate) fn slice(&self, range: Range<[<I $obj>]>) -> &[$mem_type] {
                     &self.values[Self::get_range(range)]
                 }
@@ -691,7 +688,7 @@ macro_rules! declare_file_objects {
                     // Globals & sizes are the first two sections
                     2 + Self::num_fields(ver)
                 }
-                pub(crate) fn print_classes(ver: Version) {
+                pub fn print_classes(ver: Version) {
                     use strum::VariantArray;
                     let mut total = 2;
                     for pass in Pass::VARIANTS {
@@ -709,10 +706,10 @@ macro_rules! declare_file_objects {
                     }
                 }
                 pub(crate) fn load_counts(&mut self, pass: Pass, counts: &[u32]) {
-                    let mut idx = 0;
+                    let mut _idx = 0;
                     for_each_file_class!(pass, self, obj, $spec, {
-                        obj.count = counts[idx] as usize;
-                        idx += 1;
+                        obj.count = counts[_idx] as usize;
+                        _idx += 1;
                     });
                 }
                 pub(crate) fn parse_objects(&mut self, pass: Pass, data: &mut SectionReader) -> Result<(), ParseError> {

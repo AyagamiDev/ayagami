@@ -1,10 +1,8 @@
-#![allow(unused)]
 use std::{
     cell::{Cell, RefCell},
     collections::HashMap,
     hash::Hash,
     num::NonZeroUsize,
-    sync::{Arc, Mutex},
 };
 use wgpu::util::DeviceExt;
 
@@ -16,7 +14,7 @@ use ayagami::driver::*;
 use anyhow::Result;
 use rayon::prelude::*;
 
-use glam::f32::{Affine2, Mat3, Mat4, Vec2, Vec3, Vec4, vec2, vec4};
+use glam::f32::{Affine2, Mat4, Vec2, Vec3, Vec4, vec2, vec4};
 use glam::u32::UVec2;
 use log::{debug, info, trace};
 use thiserror::Error;
@@ -28,7 +26,7 @@ pub enum RendererError {
 }
 
 struct RenderTexture {
-    tex: Texture,
+    _tex: Texture,
     bind_group: wgpu::BindGroup,
 }
 
@@ -41,7 +39,7 @@ struct PipelineMode {
 }
 
 struct ClipTexture {
-    texture: wgpu::Texture,
+    _texture: wgpu::Texture,
     view: wgpu::TextureView,
     bind_group: wgpu::BindGroup,
 }
@@ -104,7 +102,7 @@ impl<T: Model> ClipSet<T> {
         });
 
         self.texture = Some(ClipTexture {
-            texture,
+            _texture: texture,
             view,
             bind_group,
         });
@@ -204,7 +202,7 @@ impl RendererCache {
             stat.device
                 .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                     label: Some("Render Pipeline"),
-                    layout: Some(if (mode.mask) {
+                    layout: Some(if mode.mask {
                         &stat.mask_pipeline_layout
                     } else {
                         &stat.pipeline_layout
@@ -229,7 +227,7 @@ impl RendererCache {
                         topology: wgpu::PrimitiveTopology::TriangleList,
                         strip_index_format: None,
                         front_face: wgpu::FrontFace::Ccw,
-                        cull_mode: if (mode.cull) {
+                        cull_mode: if mode.cull {
                             Some(wgpu::Face::Front)
                         } else {
                             None
@@ -556,11 +554,7 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: if (cull) {
-                    Some(wgpu::Face::Front)
-                } else {
-                    None
-                },
+                cull_mode: if cull { Some(wgpu::Face::Front) } else { None },
                 // Setting this to anything other than Fill requires Features::POLYGON_MODE_LINE
                 // or Features::POLYGON_MODE_POINT
                 polygon_mode: wgpu::PolygonMode::Fill,
@@ -624,7 +618,10 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
                         ],
                         label: Some("model_bind_group"),
                     });
-                Ok(RenderTexture { tex, bind_group })
+                Ok(RenderTexture {
+                    _tex: tex,
+                    bind_group,
+                })
             })
             .collect::<Result<Vec<_>>>()?;
 
@@ -701,7 +698,7 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
         let mut clip_sets = Vec::new();
         let mut uniform_offset: usize = 0;
         for artmesh in m.artmeshes() {
-            let mut clips: Vec<_> = artmesh.clips().into_iter().map(|c| c.uid()).collect();
+            let clips: Vec<_> = artmesh.clips().into_iter().map(|c| c.uid()).collect();
             let clip_set = if clips.is_empty() {
                 None
             } else {
@@ -899,7 +896,6 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
         }
 
         for uid in md.driver.sorted_artmeshes() {
-            let artmesh = m.artmeshes().get(*uid).unwrap();
             let state = md.driver.artmesh_state(*uid).unwrap();
             if state.visual.opacity != 0. && state.visual.visible {
                 let am_data = md.artmesh_data.get(uid).unwrap();
@@ -1028,7 +1024,6 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
                 render_pass.set_bind_group(1, &self.textures[tex as usize].bind_group, &[]);
 
                 let texcoord_off = artmesh.texcoord_offset() as u64;
-                let vtx_off = artmesh.texcoord_offset() as i32;
                 render_pass.set_vertex_buffer(0, md.vertex_buffer.slice(8 * texcoord_off..));
                 render_pass.set_vertex_buffer(1, md.texcoord_buffer.slice(8 * texcoord_off..));
 
@@ -1093,7 +1088,6 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
             }
 
             let texcoord_off = artmesh.texcoord_offset() as u64;
-            let vtx_off = artmesh.texcoord_offset() as i32;
             render_pass.set_vertex_buffer(0, md.vertex_buffer.slice(8 * texcoord_off..));
             render_pass.set_vertex_buffer(1, md.texcoord_buffer.slice(8 * texcoord_off..));
 

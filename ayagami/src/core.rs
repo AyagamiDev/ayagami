@@ -1,8 +1,6 @@
-#![allow(unused)]
-
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
-use std::ops::{Deref, Index, Range};
+use std::ops::{Deref, Range};
 
 pub use super::file::classes::{BlendMode, DeformerType, ParamSnapType};
 use glam::{f32::Vec2, u32::UVec2};
