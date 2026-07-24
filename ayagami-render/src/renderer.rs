@@ -12,6 +12,7 @@ use ayagami::core::*;
 use ayagami::driver::*;
 
 use anyhow::Result;
+#[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
 
 use glam::f32::{Affine2, Mat4, Vec2, Vec3, Vec4, vec2, vec4};

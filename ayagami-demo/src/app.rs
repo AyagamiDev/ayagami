@@ -16,11 +16,6 @@ use glam::f32::{Affine2, Vec2, vec2};
 use log::{error, info};
 use std::{env, fs::File};
 
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*;
-#[cfg(target_arch = "wasm32")]
-use winit::platform::web::EventLoopExtWebSys;
-
 use eframe::{
     egui::{self, Color32},
     egui_wgpu,
