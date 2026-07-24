@@ -606,6 +606,7 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
                 let name = format!("model-texture-{0}", i);
                 let tex = Texture::from_bytes(&self.stat.device, &self.stat.queue, bytes, &name)?;
                 manager.premultiply(&self.stat.device, &self.stat.queue, &tex);
+                manager.gen_mips(&self.stat.device, &self.stat.queue, &tex);
                 let bind_group = self
                     .stat
                     .device
