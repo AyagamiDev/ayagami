@@ -1,9 +1,10 @@
 use super::parse::{Parsable, ParseError, ReadArray, SectionReader};
 use super::types::*;
 use super::{Pass, Version};
-use crate::core;
+use crate::{core, pose};
 use paste::paste;
 use std::ops::Range;
+use std::sync::Arc;
 use strum_macros::FromRepr;
 
 use Version::*;
@@ -434,6 +435,7 @@ declare_file_objects!(ParsedModel {
         pub(crate) canvas: Canvas,
         pub(crate) version: Option<Version>,
         pub(crate) root_draw_group: Option<IDrawGroup>,
+        pub(crate) pose_map: Option<Arc<pose::PoseMap>>,
     },
     Base {
         Part,

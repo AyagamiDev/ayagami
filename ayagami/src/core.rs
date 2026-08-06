@@ -1,6 +1,8 @@
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::ops::{Deref, Range};
+use std::sync::Arc;
+use crate::pose;
 
 pub use super::file::classes::{BlendMode, DeformerType, ParamSnapType};
 use glam::{f32::Vec2, u32::UVec2};
@@ -397,6 +399,8 @@ pub trait Model {
     model_type!(BlendWeightLimit);
     model_type!(DrawGroup);
     model_type!(Glue);
+
+    fn pose_map(&self) -> &Arc<pose::PoseMap>;
 
     fn canvas_properties(&self) -> CanvasProperties;
 

@@ -3,12 +3,14 @@ use super::types::*;
 use super::{Pass, Version};
 use crate::core;
 use crate::core::Model;
+use crate::pose::PoseMap;
 use ParseError::*;
 use byteorder::LittleEndian;
 use byteorder::ReadBytesExt;
 use log::debug;
 use paste::paste;
 use std::io::Read;
+use std::sync::Arc;
 use strum::VariantArray;
 use thiserror::Error;
 
@@ -259,6 +261,8 @@ impl ParsedModel {
 
         m.upgrade()?;
         m.find_refs()?;
+
+        m.pose_map = Some(Arc::new(PoseMap::from_model(&m)));
 
         Ok(m)
     }

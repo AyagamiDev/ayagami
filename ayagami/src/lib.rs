@@ -6,3 +6,4 @@ pub mod core;
 pub mod driver;
 pub mod file;
 pub mod meta;
+pub mod pose;

@@ -1,12 +1,14 @@
 use std::{
     marker::PhantomData,
     ops::{Deref, Range},
+    sync::Arc,
 };
 
 use super::classes::*;
 use crate::{
     core::{self, ItemArray},
     file::types::*,
+    pose,
 };
 use glam::{
     f32::vec2,
@@ -561,6 +563,10 @@ impl core::Model for ParsedModel {
     type BlendWeightLimit<'a> = BlendWeightLimitView<'a>;
     type DrawGroup<'a> = DrawGroupView<'a>;
     type Glue<'a> = GlueView<'a>;
+
+    fn pose_map(&self) -> &Arc<pose::PoseMap> {
+        self.pose_map.as_ref().unwrap()
+    }
 
     fn canvas_properties(&self) -> core::CanvasProperties {
         core::CanvasProperties {
