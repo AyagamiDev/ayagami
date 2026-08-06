@@ -1,6 +1,6 @@
 mod deformer;
-use crate::collections::UidCollection;
 use crate::core::*;
+use crate::{collections::UidCollection, pose};
 use deformer::*;
 use derive_more;
 use log::{debug, info, trace, warn};
@@ -485,6 +485,28 @@ impl<T: Model> Driver<T> {
             sorted_artmeshes: Default::default(),
             order_changed: true,
             perftest_mode: false,
+        }
+    }
+
+    pub fn apply_pose(&mut self, pose: &pose::Pose) {
+        for (desc, value) in pose.iter_desc() {
+            let value = value.flatten(desc.default);
+            let _ = match &desc.key {
+                pose::Key::Param(k) => self.set_param_by_id(k.as_ref(), value),
+                pose::Key::Part(k) => self.set_part_opacity_by_id(k.as_ref(), value),
+            };
+        }
+    }
+
+    pub fn set_pose(&mut self, pose: &pose::Pose) {
+        for (desc, value) in pose.iter_desc_all() {
+            let value = value
+                .map(|v| v.flatten(desc.default))
+                .unwrap_or(desc.default);
+            let _ = match &desc.key {
+                pose::Key::Param(k) => self.set_param_by_id(k.as_ref(), value),
+                pose::Key::Part(k) => self.set_part_opacity_by_id(k.as_ref(), value),
+            };
         }
     }
 
