@@ -772,16 +772,9 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
         params
     }
 
-    pub fn set_param(&mut self, uid: T::Uid, value: f32) -> Result<()> {
+    pub fn driver(&mut self) -> &mut Driver<T> {
         let md = self.model.as_mut().unwrap();
-        md.driver.set_param(uid, value)?;
-        Ok(())
-    }
-
-    pub fn set_param_by_id(&mut self, id: &str, value: f32) -> Result<()> {
-        let md = self.model.as_mut().unwrap();
-        md.driver.set_param_by_id(id, value)?;
-        Ok(())
+        &mut md.driver
     }
 
     pub fn prepare(&mut self, encoder: &mut wgpu::CommandEncoder, options: &RenderOptions) -> bool {

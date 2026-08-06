@@ -6,10 +6,10 @@ use std::{
 
 use anyhow::anyhow;
 
-use ayagami::{core::ItemArray, meta};
+use ayagami::{core::ItemArray, meta, pose::Pose};
 use ayagami::{
     core::{Model, Param},
-    file,
+    file, pose,
 };
 use ayagami_render::*;
 use glam::f32::{Affine2, Vec2, vec2};
@@ -23,10 +23,9 @@ use eframe::{
 
 const FALLBACK_FONT: &[u8] = include_bytes!("../assets/DroidSansFallback.ttf");
 
-#[derive(Default)]
 pub struct AppState {
     transform: Affine2,
-    param_values: HashMap<<file::ParsedModel as ayagami::core::Model>::Uid, f32>,
+    pose: pose::Pose,
 }
 
 type ModelRenderer = ayagami_render::ModelRenderer<file::ParsedModel, Arc<file::ParsedModel>>;
@@ -110,7 +109,11 @@ impl AyagamiTestApp {
         let texref: Vec<&[u8]> = texdata.iter().map(|v| &v[..]).collect();
         info!("Loading model into renderer...");
         self.model = Some(model.clone());
+        let mut pose = Pose::new(&*model);
         self.renderer.lock().unwrap().load_model(model, &texref)?;
+        pose.update(&self.state.pose);
+        self.renderer.lock().unwrap().driver().apply_pose(&pose);
+        self.state.pose = pose;
 
         self.info = None;
         self.info_param.clear();
@@ -175,7 +178,10 @@ impl AyagamiTestApp {
         let mut app = Self {
             model: None,
             renderer,
-            state: Default::default(),
+            state: AppState {
+                transform: Default::default(),
+                pose: pose::Pose::empty(),
+            },
             info: Default::default(),
             info_param: Default::default(),
             kp_param: Default::default(),
@@ -288,29 +294,32 @@ impl AyagamiTestApp {
                 }
                 label = &info.name;
             }
-            let value = state.param_values.entry(param.uid).or_insert(param.default);
+            let key = pose::Key::param(&param.id);
+            let mut value = state.pose.get_flattened(&key).unwrap();
+            let mut changed = false;
             ui.horizontal(|ui| {
                 if ui.button("🔄").clicked() {
-                    *value = param.default;
-                    renderer.set_param(param.uid, param.default).unwrap();
+                    state.pose.unset(&key);
+                    changed = true;
                 }
-                let res = ui.add(egui::Slider::new(value, param.min..=param.max).text(label));
+                let res = ui.add(egui::Slider::new(&mut value, param.min..=param.max).text(label));
                 if res.changed() {
                     if res.ctx.input(|input| input.modifiers.shift)
                         && let Some(closest) = kp_param.get(&param.id).and_then(|v| {
                             v.iter().min_by(|a, b| {
-                                (*a - *value)
-                                    .abs()
-                                    .partial_cmp(&(*b - *value).abs())
-                                    .unwrap()
+                                (*a - value).abs().partial_cmp(&(*b - value).abs()).unwrap()
                             })
                         })
                     {
-                        *value = *closest;
+                        value = *closest;
                     }
-                    renderer.set_param(param.uid, *value).unwrap();
+                    state.pose.set(&key, value);
+                    changed = true;
                 }
             });
+            if changed {
+                renderer.driver().set_pose(&state.pose);
+            }
         }
     }
 
