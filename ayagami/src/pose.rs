@@ -232,11 +232,10 @@ impl Pose {
     }
 
     pub fn set_value(&mut self, key: &Key, mut value: Value) {
-        let Some((idx, desc)) = self.map.get(key) else {
+        let Some((idx, _)) = self.map.get(key) else {
             return;
         };
         value.opacity = value.opacity.clamp(0., 1.);
-        value.value = value.value.clamp(desc.min, desc.max);
         self.values.insert(idx, value);
     }
 
@@ -270,6 +269,15 @@ impl Pose {
                 .map(|v| v.flatten(desc.default))
                 .unwrap_or(desc.default),
         )
+    }
+
+    pub fn clamp(&mut self) {
+        self.iter_desc_mut().for_each(|(desc, v)| {
+            *v = Value {
+                value: v.value.clamp(desc.min, desc.max),
+                opacity: v.opacity.clamp(0., 1.),
+            }
+        });
     }
 
     pub fn apply<B, N>(&mut self, other: &Self, blend: B, new: N)
@@ -333,7 +341,7 @@ impl Pose {
 
     pub fn flatten(&mut self) {
         for (i, v) in self.values.iter_mut() {
-            let default = self.map.index(*i).map(|a| a.default).unwrap_or(0.);
+            let default = self.map.index(*i).unwrap().default;
             if v.opacity != 1.0 {
                 *v = Value {
                     value: v.flatten(default),
@@ -370,7 +378,7 @@ impl Pose {
     }
 
     pub fn set_or_add_value(&mut self, key: Key<'static>, mut value: Value) {
-        let (idx, desc) = match self.map.get(&key) {
+        let (idx, _) = match self.map.get(&key) {
             Some((idx, desc)) => (idx, desc),
             None => {
                 let idx = self.map.descriptors.len();
@@ -379,7 +387,6 @@ impl Pose {
             }
         };
         value.opacity = value.opacity.clamp(0., 1.);
-        value.value = value.value.clamp(desc.min, desc.max);
         self.values.insert(idx, value);
     }
 
