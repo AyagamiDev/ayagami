@@ -1,3 +1,5 @@
+use glam::FloatExt;
+
 use crate::core::{self, Item, Param, Part};
 use std::{borrow::Cow, collections::HashMap, sync::Arc};
 
@@ -144,19 +146,58 @@ impl Value {
         Self { value, opacity: 1. }
     }
 
-    pub fn blend(&self, over: &Self) -> Self {
-        if over.opacity == 1.0 {
+    pub fn opacity(&self, opacity: f32) -> Self {
+        Self {
+            value: self.value,
+            opacity: self.opacity * opacity,
+        }
+    }
+
+    pub fn blend(&self, over: &Self, weight: f32) -> Self {
+        let a_over = over.opacity * weight;
+        if a_over == 1. {
             *over
-        } else if over.opacity == 0.0 {
+        } else if a_over == 0. {
             *self
         } else {
-            let opacity = over.opacity + self.opacity * (1. - over.opacity);
+            let opacity = a_over + self.opacity * (1. - a_over);
             Self {
-                value: (over.value * over.opacity
-                    + self.value * self.opacity * (1. - over.opacity))
-                    / opacity,
+                value: (over.value * a_over + self.value * self.opacity * (1. - a_over)) / opacity,
                 opacity,
             }
+        }
+    }
+
+    pub fn disjoint(&self, over: &Self, weight: f32) -> Self {
+        let a_over = over.opacity * weight;
+        let a_under = self.opacity.min(1. - a_over);
+        if a_over == 1. {
+            *over
+        } else if a_over == 0. {
+            *self
+        } else {
+            let opacity = a_over + a_under;
+            Self {
+                value: (over.value * a_over + self.value * a_under) / opacity,
+                opacity,
+            }
+        }
+    }
+
+    pub fn multiply(&self, over: &Self, weight: f32) -> Self {
+        let a_over = over.opacity * weight;
+        Self {
+            value: self.value.lerp(self.value * over.value, a_over),
+            opacity: self.opacity,
+        }
+    }
+
+    pub fn add(&self, over: &Self, weight: f32) -> Self {
+        let a_over = over.opacity * weight;
+        let opacity = (self.opacity + a_over).min(1.);
+        Self {
+            value: self.value.lerp(self.value + over.value, a_over),
+            opacity,
         }
     }
 
@@ -234,14 +275,16 @@ impl Pose {
     pub fn apply<B, N>(&mut self, other: &Self, blend: B, new: N)
     where
         B: Fn(&Value, &Value) -> Value,
-        N: Fn(&Value) -> Value,
+        N: Fn(&Value) -> Option<Value>,
     {
         if Arc::ptr_eq(&self.map, &other.map) {
             for (i2, v2) in other.values.iter() {
                 if let Some(v1) = self.values.get_mut(i2) {
                     *v1 = blend(v1, v2);
                 } else {
-                    self.values.insert(*i2, new(v2));
+                    if let Some(v) = new(v2) {
+                        self.values.insert(*i2, v);
+                    }
                 }
             }
         } else {
@@ -252,18 +295,40 @@ impl Pose {
                 if let Some(v1) = self.values.get_mut(&vi) {
                     *v1 = blend(v1, v2);
                 } else {
-                    self.values.insert(*i2, new(v2));
+                    if let Some(v) = new(v2) {
+                        self.values.insert(*i2, v);
+                    }
                 }
             }
         }
     }
 
     pub fn update(&mut self, other: &Self) {
-        self.apply(other, |_, b| *b, |b| *b);
+        self.apply(other, |_, b| *b, |b| Some(*b));
     }
 
-    pub fn blend(&mut self, other: &Self) {
-        self.apply(other, |a, b| a.blend(b), |b| *b);
+    pub fn blend(&mut self, other: &Self, weight: f32) {
+        self.apply(
+            other,
+            |a, b| a.blend(b, weight),
+            |b| Some(b.opacity(weight)),
+        );
+    }
+
+    pub fn disjoint(&mut self, other: &Self, weight: f32) {
+        self.apply(
+            other,
+            |a, b| a.disjoint(b, weight),
+            |b| Some(b.opacity(weight)),
+        );
+    }
+
+    pub fn add(&mut self, other: &Self, weight: f32) {
+        self.apply(other, |a, b| a.add(b, weight), |b| Some(b.opacity(weight)));
+    }
+
+    pub fn multiply(&mut self, other: &Self, weight: f32) {
+        self.apply(other, |a, b| a.multiply(b, weight), |_| None);
     }
 
     pub fn flatten(&mut self) {
