@@ -395,13 +395,11 @@ impl Pose {
     }
 
     pub fn keys(&self) -> impl Iterator<Item = &Key<'static>> {
-        self.values
-            .iter()
-            .map(|(i, _)| &self.map.index(*i).unwrap().key)
+        self.descriptors().map(|d| &d.key)
     }
 
     pub fn descriptors(&self) -> impl Iterator<Item = &Descriptor> {
-        self.values.iter().map(|(i, _)| self.map.index(*i).unwrap())
+        self.values.keys().map(|i| self.map.index(*i).unwrap())
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&Key<'static>, &Value)> {
