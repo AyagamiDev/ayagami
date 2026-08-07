@@ -274,9 +274,11 @@ impl ParsedModel {
 
         let new_count = self.multiply_color.count + count as usize;
 
+        self.multiply_color.count = new_count;
         self.multiply_color.r.resize(new_count, 1.0);
         self.multiply_color.g.resize(new_count, 1.0);
         self.multiply_color.b.resize(new_count, 1.0);
+        self.screen_color.count = new_count;
         self.screen_color.r.resize(new_count, 0.0);
         self.screen_color.g.resize(new_count, 0.0);
         self.screen_color.b.resize(new_count, 0.0);
@@ -320,7 +322,7 @@ impl ParsedModel {
             debug!("Upgrading colors from < V4.2 to V5.0");
             let idx = self.default_colors(1);
             self.art_mesh_form.i_multiply_color =
-                flat_vec(self.art_mesh_form.count, IMultiplyColor(0));
+                flat_vec(self.art_mesh_form.count, IMultiplyColor(idx));
             self.art_mesh_form.i_screen_color =
                 flat_vec(self.art_mesh_form.count, IScreenColor(idx));
             self.warp_form.i_multiply_color = flat_vec(self.warp_form.count, IMultiplyColor(idx));
