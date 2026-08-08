@@ -261,6 +261,18 @@ impl Pose {
         self.values.get_mut(&self.map.get(key)?.0)
     }
 
+    pub fn get_mut_flattened(&mut self, key: &Key) -> Option<&mut Value> {
+        let (idx, desc) = &self.map.get(key)?;
+        let v = self
+            .values
+            .entry(*idx)
+            .or_insert(Value::opaque(desc.default));
+        if v.opacity != 1. {
+            *v = Value::opaque(v.flatten(desc.default));
+        }
+        Some(v)
+    }
+
     pub fn get_flattened(&self, key: &Key) -> Option<f32> {
         let (idx, desc) = self.map.get(key)?;
         Some(
