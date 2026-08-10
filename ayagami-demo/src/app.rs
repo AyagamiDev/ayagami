@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    f32::consts::PI,
     io::{Cursor, Read, Seek},
     sync::{Arc, Mutex},
 };
@@ -9,7 +10,7 @@ use anyhow::anyhow;
 use ayagami::{core::ItemArray, meta, pose::Pose};
 use ayagami::{
     core::{Model, Param},
-    file, pose,
+    file, physics, pose,
 };
 use ayagami_render::*;
 use glam::f32::{Affine2, Vec2, vec2};
@@ -25,6 +26,7 @@ const FALLBACK_FONT: &[u8] = include_bytes!("../assets/DroidSansFallback.ttf");
 
 pub struct AppState {
     transform: Affine2,
+    physics: Option<physics::PhysicsEngine>,
     pose: pose::Pose,
 }
 
@@ -131,6 +133,17 @@ impl AyagamiTestApp {
             self.info = Some(info);
         }
 
+        self.state.physics = None;
+        if let Some(physics_name) = info.file_references.physics {
+            info!("Loading physics...");
+            let physics_path = base.join(physics_name);
+            let physics = archive.by_path(&physics_path)?;
+            let setting: meta::Physics3 = serde_json::from_reader(physics)?;
+
+            let config = physics::PhysicsOptions::compatible(None);
+            self.state.physics = Some(physics::PhysicsEngine::new(setting, config));
+        }
+
         Ok(())
     }
 
@@ -181,6 +194,7 @@ impl AyagamiTestApp {
             state: AppState {
                 transform: Default::default(),
                 pose: pose::Pose::empty(),
+                physics: None,
             },
             info: Default::default(),
             info_param: Default::default(),
@@ -317,9 +331,6 @@ impl AyagamiTestApp {
                     changed = true;
                 }
             });
-            if changed {
-                renderer.driver().set_pose(&state.pose);
-            }
         }
     }
 
@@ -387,10 +398,25 @@ impl AyagamiTestApp {
             ui,
             "",
         );
+
+        renderer.driver().set_pose(&self.state.pose);
     }
 }
 
 impl eframe::App for AyagamiTestApp {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if let Some(physics) = &mut self.state.physics {
+            ctx.input(|i| {
+                physics.update(&mut self.state.pose, i.stable_dt);
+                self.state.pose.set(
+                    &pose::Key::param(&"ParamBreath"),
+                    (i.time as f32 / 2. * PI).sin() / 2. + 0.5,
+                );
+            });
+            ctx.request_repaint();
+        }
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         egui::Panel::top("top bar")
             .frame(egui::Frame::side_top_panel(ui.style()).inner_margin(4))
