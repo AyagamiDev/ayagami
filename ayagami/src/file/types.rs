@@ -64,6 +64,7 @@ pub(crate) mod private {
         const STRIDE: u32 = 1;
 
         fn new(i: Option<u32>) -> Self;
+        #[allow(dead_code)]
         fn offset(&self, offset: u32) -> Self {
             Self::new(Some(self.get().unwrap() + offset * Self::STRIDE))
         }

@@ -414,7 +414,7 @@ impl eframe::App for AyagamiTestApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if let Some(physics) = &mut self.state.physics {
             ctx.input(|i| {
-                let breath = pose::Key::param(&"ParamBreath");
+                let breath = pose::Key::param("ParamBreath");
                 if let Some((_, desc)) = self.state.pose.map().get(&breath) {
                     let v = ((i.time as f32 / 2. * PI).sin() / 2. + 0.5) * (desc.max - desc.min)
                         + desc.min;

@@ -135,7 +135,7 @@ fn norm_angle(mut a: f32) -> f32 {
     if !a.is_finite() {
         return a;
     }
-    a = a % TAU;
+    a %= TAU;
     if a > PI {
         a - TAU
     } else if a < -PI {
@@ -343,7 +343,7 @@ impl PhysicsEngine {
             let mut pendulums = Vec::new();
             let mut pivot = Vec2::ZERO;
             for vertex in setting.vertices.iter().skip(1) {
-                pendulums.push(Pendulum::new(pivot.clone(), vertex.clone()));
+                pendulums.push(Pendulum::new(pivot, vertex.clone()));
                 pivot.y += vertex.radius;
             }
 
