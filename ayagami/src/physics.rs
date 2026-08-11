@@ -1,4 +1,4 @@
-use std::f32::consts::PI;
+use std::f32::consts::{PI, TAU};
 
 use glam::Vec2;
 
@@ -132,18 +132,17 @@ pub struct Pendulum {
 }
 
 fn norm_angle(mut a: f32) -> f32 {
-    // XXX Is there a better way to do this?
     if !a.is_finite() {
         return a;
     }
-    assert!(a.abs() < 100000.);
-    while a > PI {
-        a -= 2. * PI;
+    a = a % TAU;
+    if a > PI {
+        a - TAU
+    } else if a < -PI {
+        a + TAU
+    } else {
+        a
     }
-    while a < -PI {
-        a += 2. * PI;
-    }
-    a
 }
 
 impl Pendulum {
@@ -302,7 +301,7 @@ impl System {
 
     fn update(&mut self, pose: &mut pose::Pose, dt: f32, opts: &PhysicsOptions) -> bool {
         let (angle, x) = self.get_inputs(pose);
-        let changed = self.simulate(dt, x, angle / 180. * PI, opts);
+        let changed = self.simulate(dt, x, angle.to_radians(), opts);
         self.apply_outputs(pose);
         changed
     }
