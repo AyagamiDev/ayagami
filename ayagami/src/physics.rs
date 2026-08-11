@@ -7,6 +7,8 @@ use crate::{
     pose::{self, Value},
 };
 
+use log::warn;
+
 const REF_FPS: f32 = 30.;
 const DEFAULT_COMPAT_FPS: f32 = 60.;
 
@@ -311,13 +313,23 @@ impl PhysicsEngine {
 
         let mut systems = Vec::new();
 
-        for setting in config.physics_settings {
+        for (i, mut setting) in config.physics_settings.into_iter().enumerate() {
             let mut pendulums = Vec::new();
             let mut pivot = Vec2::ZERO;
             for vertex in setting.vertices.iter().skip(1) {
                 pendulums.push(Pendulum::new(pivot.clone(), vertex.clone()));
                 pivot.y += vertex.radius;
             }
+
+            setting.output.retain(|o| {
+                if o.vertex_index == 0 || o.vertex_index as usize > pendulums.len() {
+                    warn!("Physics setting #{} ({}) output has invalid vertex index {} (Valid: 1..{}). Ignoring this output.",
+                        i, setting.id, o.vertex_index, pendulums.len());
+                    false
+                } else {
+                    true
+                }
+            });
 
             let g = &config.meta.effective_forces.gravity;
             systems.push(System {
