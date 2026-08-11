@@ -48,6 +48,9 @@ pub enum XInputFunction {
 }
 
 pub struct PhysicsOptions {
+    /// Minimum frame rate for simulation. If the physics system is called less
+    /// frequently, it will internally simulate multiple frames, to ensure stability.
+    pub min_fps: f32,
     /// FPS value to use when scaling physics calculations.
     /// If None, then use the FPS declared in the physics configuration, or 60 if unset.
     ///
@@ -83,6 +86,7 @@ pub struct PhysicsOptions {
 impl PhysicsOptions {
     pub fn compatible(fps: Option<f32>) -> Self {
         Self {
+            min_fps: 50.,
             world_fps: fps,
             gravity_lookahead: true,
             angular_momentum_loss: true,
@@ -92,6 +96,7 @@ impl PhysicsOptions {
     }
     pub fn useful(fps: Option<f32>) -> Self {
         Self {
+            min_fps: 50.,
             world_fps: fps,
             gravity_lookahead: false,
             angular_momentum_loss: false,
@@ -101,6 +106,7 @@ impl PhysicsOptions {
     }
     pub fn accurate(fps: Option<f32>) -> Self {
         Self {
+            min_fps: 50.,
             world_fps: fps,
             gravity_lookahead: false,
             angular_momentum_loss: false,
@@ -220,7 +226,7 @@ impl System {
                 }
             };
 
-        for (i, pendulum) in self.pendulums.iter_mut().enumerate() {
+        for pendulum in self.pendulums.iter_mut() {
             pendulum.simulate(dt, pivot, input_angle, opts);
             pivot = pendulum.bob;
         }
@@ -328,9 +334,17 @@ impl PhysicsEngine {
         }
     }
 
-    pub fn update(&mut self, pose: &mut pose::Pose, dt: f32) {
-        for system in self.systems.iter_mut() {
-            system.update(pose, dt, &self.options);
+    pub fn update(&mut self, pose: &mut pose::Pose, mut dt: f32) {
+        let mut ticks: usize = 1;
+        if self.options.min_fps > 0. {
+            let max_dt = 1. / self.options.min_fps;
+            ticks = ((max_dt + dt) / max_dt).floor() as usize;
+            dt /= ticks as f32;
+        }
+        for _ in 0..ticks {
+            for system in self.systems.iter_mut() {
+                system.update(pose, dt, &self.options);
+            }
         }
     }
 
