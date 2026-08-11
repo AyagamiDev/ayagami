@@ -7,12 +7,15 @@ use crate::{
     pose::{self, Value},
 };
 
-use log::warn;
+use log::{debug, warn};
 
 const REF_FPS: f32 = 30.;
 const DEFAULT_COMPAT_FPS: f32 = 60.;
 
 const ACC_FAC: f32 = REF_FPS * REF_FPS;
+
+const MAX_SIM_TIME: f32 = 5.;
+const SETTLE_SIM_TIME: f32 = 60.;
 
 trait Vec2Ext {
     fn flip(&self) -> Self;
@@ -176,15 +179,16 @@ impl Pendulum {
         Vec2::new(da, dv)
     }
 
-    fn simulate(&mut self, dt: f32, pivot: Vec2, g_angle: f32, opts: &PhysicsOptions) {
+    fn simulate(&mut self, dt: f32, pivot: Vec2, g_angle: f32, opts: &PhysicsOptions) -> bool {
         if dt.is_infinite() {
             // For infinite dt, settle the system
+            let changed = self.pivot != pivot || self.g_angle != g_angle;
             self.pivot = pivot;
             self.g_angle = g_angle;
             self.angle = g_angle;
             self.velocity = 0.;
             self.bob = Vec2::from_angle(self.angle).flip() * self.cfg.radius + self.pivot;
-            return;
+            return changed;
         }
 
         let dt = self.cfg.delay * dt;
@@ -212,6 +216,7 @@ impl Pendulum {
         self.angle = norm_angle(next.x);
         self.velocity = next.y;
         self.bob = Vec2::from_angle(self.angle).flip() * self.cfg.radius + self.pivot;
+        true
     }
 }
 
@@ -222,7 +227,7 @@ pub struct System {
 }
 
 impl System {
-    fn simulate(&mut self, dt: f32, input_x: f32, input_angle: f32, opts: &PhysicsOptions) {
+    fn simulate(&mut self, dt: f32, input_x: f32, input_angle: f32, opts: &PhysicsOptions) -> bool {
         let mut pivot = input_x
             * match opts.x_input_function {
                 XInputFunction::Normal => Vec2::from_angle(input_angle),
@@ -238,10 +243,14 @@ impl System {
                 }
             };
 
+        let mut changed = false;
         for pendulum in self.pendulums.iter_mut() {
-            pendulum.simulate(dt, pivot, input_angle, opts);
+            if pendulum.simulate(dt, pivot, input_angle, opts) {
+                changed = true;
+            }
             pivot = pendulum.bob;
         }
+        changed
     }
 
     fn get_inputs(&mut self, pose: &pose::Pose) -> (f32, f32) {
@@ -291,15 +300,11 @@ impl System {
         }
     }
 
-    fn update(&mut self, pose: &mut pose::Pose, dt: f32, opts: &PhysicsOptions) {
+    fn update(&mut self, pose: &mut pose::Pose, dt: f32, opts: &PhysicsOptions) -> bool {
         let (angle, x) = self.get_inputs(pose);
-        self.simulate(dt, x, angle / 180. * PI, opts);
+        let changed = self.simulate(dt, x, angle / 180. * PI, opts);
         self.apply_outputs(pose);
-    }
-
-    fn settle(&mut self, pose: &pose::Pose, opts: &PhysicsOptions) {
-        let (angle, x) = self.get_inputs(pose);
-        self.simulate(f32::INFINITY, x, angle / 180. * PI, opts);
+        changed
     }
 
     fn normalize(&self, v: f32, norm: &meta::PhysicsRange) -> f32 {
@@ -369,10 +374,32 @@ impl PhysicsEngine {
     }
 
     pub fn update(&mut self, pose: &mut pose::Pose, mut dt: f32) {
+        // Simulate a maximum of 5 seconds worth of physics at once. If the frame rate
+        // drops below this, physics will run slower than real time. In practice
+        // this tends to happen when an app is paused (minimized, computer goes to sleep,
+        // etc.).
+        if dt < 0. {
+            warn!("Physics update with negative dt: {}", dt);
+            dt = 0.;
+        } else if dt > MAX_SIM_TIME {
+            warn!(
+                "Physics update with large dt {}, limiting to {}",
+                dt, MAX_SIM_TIME
+            );
+            dt = MAX_SIM_TIME;
+        }
+        // Split dt into an integer number of steps, such that it remains below
+        // 1 / min_fps.
         let mut ticks: usize = 1;
         if self.options.min_fps > 0. {
             let max_dt = 1. / self.options.min_fps;
             ticks = ((max_dt + dt) / max_dt).floor() as usize;
+            if ticks > 1 {
+                debug!(
+                    "Slow physics update (dt={}), splitting into {} updates",
+                    dt, ticks
+                );
+            }
             dt /= ticks as f32;
         }
         for _ in 0..ticks {
@@ -383,8 +410,29 @@ impl PhysicsEngine {
     }
 
     pub fn settle(&mut self, pose: &pose::Pose) {
-        for system in self.systems.iter_mut() {
-            system.settle(pose, &self.options);
+        let mut pose = pose.clone();
+        // One iteration will settle the system if and only if the physics settings
+        // have only forward dependencies. As many iterations as settings will
+        // settle the system if there are backwards dependencies but no cycles.
+        // If there are dependency cycles, then there is no guarantee the system
+        // will settle.
+        for _ in 0..(self.systems.len() + 1) {
+            let mut changed = false;
+            for system in self.systems.iter_mut() {
+                if system.update(&mut pose, f32::INFINITY, &self.options) {
+                    changed = true;
+                }
+            }
+            if !changed {
+                return;
+            }
+        }
+        warn!(
+            "Physics system failed to settle, it likely has circular dependencies. Trying to simulate..."
+        );
+        // Just run the physics for a while
+        for _ in 0..((SETTLE_SIM_TIME / MAX_SIM_TIME).ceil() as usize) {
+            self.update(&mut pose, MAX_SIM_TIME);
         }
     }
 
