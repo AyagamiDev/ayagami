@@ -43,12 +43,12 @@ The code is messy; I'm releasing this early to get feedback on the API and start
 
 * [ ] Document MOC3 file format
 * [ ] Screenshot tool in demo poser app
-* [ ] Physics engine
+* [x] Physics engine
 * [ ] Expression file support
 * [ ] Pose file (part linking?) support
 * [ ] Motion file (animation) support
 * [ ] Full model file verification (reject models with inconsistencies at load time, see Safety section below)
-* [ ] Godot component
+* [x] [Godot component](https://github.com/AyagamiDev/ayagami-gd)
 * [ ] C compatible API
 * [ ] Embeddable web component
 * [ ] Mesh deform acceleration via GPU compute
