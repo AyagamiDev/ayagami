@@ -28,6 +28,7 @@ pub struct AppState {
     transform: Affine2,
     physics: Option<physics::PhysicsEngine>,
     pose: pose::Pose,
+    needs_settle: bool,
 }
 
 type ModelRenderer = ayagami_render::ModelRenderer<file::ParsedModel, Arc<file::ParsedModel>>;
@@ -142,6 +143,7 @@ impl AyagamiTestApp {
 
             let config = physics::PhysicsOptions::compatible(None);
             self.state.physics = Some(physics::PhysicsEngine::new(setting, config));
+            self.state.needs_settle = true;
         }
 
         Ok(())
@@ -195,6 +197,7 @@ impl AyagamiTestApp {
                 transform: Default::default(),
                 pose: pose::Pose::empty(),
                 physics: None,
+                needs_settle: false,
             },
             info: Default::default(),
             info_param: Default::default(),
@@ -316,6 +319,10 @@ impl AyagamiTestApp {
                     state.pose.unset(&key);
                     changed = true;
                 }
+                // Slider::max_decimals() force rounds the value even if the user doesn't touch
+                // it. We don't want that for physics outputs/breath, so explicitly round
+                // but only commit if the slider was touched.
+                value = (value * 100.).round() / 100.;
                 let res = ui.add(egui::Slider::new(&mut value, param.min..=param.max).text(label));
                 if res.changed() {
                     if res.ctx.input(|input| input.modifiers.shift)
@@ -407,11 +414,17 @@ impl eframe::App for AyagamiTestApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if let Some(physics) = &mut self.state.physics {
             ctx.input(|i| {
+                let breath = pose::Key::param(&"ParamBreath");
+                if let Some((_, desc)) = self.state.pose.map().get(&breath) {
+                    let v = ((i.time as f32 / 2. * PI).sin() / 2. + 0.5) * (desc.max - desc.min)
+                        + desc.min;
+                    self.state.pose.set(&breath, v);
+                }
+                if self.state.needs_settle {
+                    physics.settle(&self.state.pose);
+                    self.state.needs_settle = false;
+                }
                 physics.update(&mut self.state.pose, i.stable_dt);
-                self.state.pose.set(
-                    &pose::Key::param(&"ParamBreath"),
-                    (i.time as f32 / 2. * PI).sin() / 2. + 0.5,
-                );
             });
             ctx.request_repaint();
         }
