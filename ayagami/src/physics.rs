@@ -177,6 +177,16 @@ impl Pendulum {
     }
 
     fn simulate(&mut self, dt: f32, pivot: Vec2, g_angle: f32, opts: &PhysicsOptions) {
+        if dt.is_infinite() {
+            // For infinite dt, settle the system
+            self.pivot = pivot;
+            self.g_angle = g_angle;
+            self.angle = g_angle;
+            self.velocity = 0.;
+            self.bob = Vec2::from_angle(self.angle).flip() * self.cfg.radius + self.pivot;
+            return;
+        }
+
         let dt = self.cfg.delay * dt;
 
         if pivot != self.pivot {
@@ -234,8 +244,7 @@ impl System {
         }
     }
 
-    fn update(&mut self, pose: &mut pose::Pose, dt: f32, opts: &PhysicsOptions) {
-        pose.flatten();
+    fn get_inputs(&mut self, pose: &pose::Pose) -> (f32, f32) {
         let mut angle = 0.;
         let mut x = 0.;
         for input in self.setting.input.iter() {
@@ -260,8 +269,10 @@ impl System {
         angle = self.normalize(angle, &self.setting.normalization.angle);
         x = self.normalize(x, &self.setting.normalization.position);
 
-        self.simulate(dt, x, angle / 180. * PI, opts);
+        (angle, x)
+    }
 
+    fn apply_outputs(&mut self, pose: &mut pose::Pose) {
         for output in self.setting.output.iter() {
             assert!(output.destination.target == meta::TargetType::Parameter);
             let key = pose::Key::param(&output.destination.id);
@@ -278,6 +289,17 @@ impl System {
                 *v = Value::opaque(value * a + v.value * (1. - a));
             }
         }
+    }
+
+    fn update(&mut self, pose: &mut pose::Pose, dt: f32, opts: &PhysicsOptions) {
+        let (angle, x) = self.get_inputs(pose);
+        self.simulate(dt, x, angle / 180. * PI, opts);
+        self.apply_outputs(pose);
+    }
+
+    fn settle(&mut self, pose: &pose::Pose, opts: &PhysicsOptions) {
+        let (angle, x) = self.get_inputs(pose);
+        self.simulate(f32::INFINITY, x, angle / 180. * PI, opts);
     }
 
     fn normalize(&self, v: f32, norm: &meta::PhysicsRange) -> f32 {
@@ -357,6 +379,12 @@ impl PhysicsEngine {
             for system in self.systems.iter_mut() {
                 system.update(pose, dt, &self.options);
             }
+        }
+    }
+
+    pub fn settle(&mut self, pose: &pose::Pose) {
+        for system in self.systems.iter_mut() {
+            system.settle(pose, &self.options);
         }
     }
 
