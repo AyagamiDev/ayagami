@@ -1,4 +1,7 @@
-use std::f32::consts::{PI, TAU};
+use std::{
+    collections::HashSet,
+    f32::consts::{PI, TAU},
+};
 
 use glam::Vec2;
 
@@ -223,6 +226,8 @@ pub struct System {
     gravity_angle: f32,
     pendulums: Vec<Pendulum>,
     setting: meta::PhysicsSetting,
+    input_keys: Vec<pose::Key<'static>>,
+    output_keys: Vec<pose::Key<'static>>,
 }
 
 impl System {
@@ -255,9 +260,9 @@ impl System {
     fn get_inputs(&mut self, pose: &pose::Pose) -> (f32, f32) {
         let mut angle = 0.;
         let mut x = 0.;
-        for input in self.setting.input.iter() {
+        for (i, input) in self.setting.input.iter().enumerate() {
             assert!(input.source.target == meta::TargetType::Parameter);
-            let key = pose::Key::param(&input.source.id);
+            let key = &self.input_keys[i];
             let Some((_, desc)) = pose.map().get(&key) else {
                 continue;
             };
@@ -281,9 +286,9 @@ impl System {
     }
 
     fn apply_outputs(&mut self, pose: &mut pose::Pose) {
-        for output in self.setting.output.iter() {
+        for (i, output) in self.setting.output.iter().enumerate() {
             assert!(output.destination.target == meta::TargetType::Parameter);
-            let key = pose::Key::param(&output.destination.id);
+            let key = &self.output_keys[i];
             let Some((_, desc)) = pose.map().get(&key) else {
                 continue;
             };
@@ -329,6 +334,8 @@ pub struct PhysicsEngine {
     meta_fps: Option<f32>,
     options: PhysicsOptions,
     systems: Vec<System>,
+    input_key_set: HashSet<pose::Key<'static>>,
+    output_key_set: HashSet<pose::Key<'static>>,
 }
 
 impl PhysicsEngine {
@@ -338,6 +345,8 @@ impl PhysicsEngine {
         }
 
         let mut systems = Vec::new();
+        let mut input_key_set = HashSet::new();
+        let mut output_key_set = HashSet::new();
 
         for (i, mut setting) in config.physics_settings.into_iter().enumerate() {
             let mut pendulums = Vec::new();
@@ -357,11 +366,35 @@ impl PhysicsEngine {
                 }
             });
 
+            let input_keys = setting
+                .input
+                .iter()
+                .map(|o| {
+                    assert!(o.source.target == meta::TargetType::Parameter);
+                    let k = pose::Key::from_param(o.source.id.to_string());
+                    input_key_set.insert(k.clone());
+                    k
+                })
+                .collect();
+
+            let output_keys = setting
+                .output
+                .iter()
+                .map(|o| {
+                    assert!(o.destination.target == meta::TargetType::Parameter);
+                    let k = pose::Key::from_param(o.destination.id.to_string());
+                    output_key_set.insert(k.clone());
+                    k
+                })
+                .collect();
+
             let g = &config.meta.effective_forces.gravity;
             systems.push(System {
                 pendulums,
                 gravity_angle: -g.x.atan2(-g.y),
                 setting,
+                input_keys,
+                output_keys,
             })
         }
 
@@ -369,6 +402,8 @@ impl PhysicsEngine {
             meta_fps: config.meta.fps,
             options,
             systems,
+            input_key_set,
+            output_key_set,
         }
     }
 
@@ -440,5 +475,13 @@ impl PhysicsEngine {
             options.world_fps = Some(self.meta_fps.unwrap_or(DEFAULT_COMPAT_FPS));
         }
         self.options = options;
+    }
+
+    pub fn input_key_set(&self) -> impl Iterator<Item = &pose::Key<'_>> {
+        self.input_key_set.iter()
+    }
+
+    pub fn output_key_set(&self) -> impl Iterator<Item = &pose::Key<'_>> {
+        self.output_key_set.iter()
     }
 }
