@@ -9,6 +9,7 @@ ayagami = { path = "../ayagami" }
 ayagami-render = { path = "../ayagami-render" }
 eframe = "0.35.0"
 egui_logger = "0.11.0"
+git-version = "0.3.9"
 glam = "0.33.2"
 log = "0.4.33"
 serde = "1.0.228"

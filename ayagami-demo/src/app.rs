@@ -22,6 +22,10 @@ use eframe::{
     egui_wgpu,
 };
 
+use git_version::git_version;
+
+const VERSION: &str = git_version!(cargo_prefix = "v", fallback = "unknown");
+
 const FALLBACK_FONT: &[u8] = include_bytes!("../assets/DroidSansFallback.ttf");
 
 pub struct AppState {
@@ -286,6 +290,9 @@ impl AyagamiTestApp {
                 ui.add_space(8.0);
                 ui.label(format!("{:?}", info.backend));
                 ui.label("Backend:");
+                ui.separator();
+                ui.label(VERSION);
+                ui.label("Version:");
                 ui.separator();
                 ui.add(egui::Hyperlink::from_label_and_url(
                     egui::RichText::new("Source code"),
