@@ -266,10 +266,10 @@ impl System {
         for (i, input) in self.setting.input.iter().enumerate() {
             assert!(input.source.target == meta::TargetType::Parameter);
             let key = &self.input_keys[i];
-            let Some((_, desc)) = pose.map().get(&key) else {
+            let Some((_, desc)) = pose.map().get(key) else {
                 continue;
             };
-            let value = pose.get_flattened(&key).unwrap_or(0.);
+            let value = pose.get_flattened(key).unwrap_or(0.);
             let mut t = (value - desc.min) / (desc.max - desc.min);
             t = 2. * t - 1.;
             t = t * input.weight / 100.;
@@ -292,7 +292,7 @@ impl System {
         for (i, output) in self.setting.output.iter().enumerate() {
             assert!(output.destination.target == meta::TargetType::Parameter);
             let key = &self.output_keys[i];
-            let Some((_, desc)) = pose.map().get(&key) else {
+            let Some((_, desc)) = pose.map().get(key) else {
                 continue;
             };
             let mut value = self.angle(output.vertex_index as usize - 1) * output.scale;
@@ -301,7 +301,7 @@ impl System {
             }
             let a = output.weight / 100.;
             value = value.clamp(desc.min, desc.max);
-            if let Some(v) = pose.get_mut_flattened(&key) {
+            if let Some(v) = pose.get_mut_flattened(key) {
                 *v = Value::opaque(value * a + v.value * (1. - a));
             }
         }
