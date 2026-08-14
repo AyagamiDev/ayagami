@@ -307,7 +307,7 @@ impl ParsedModel {
 
         if ver < Version::V3_3 {
             debug!("Upgrading to V3.3");
-            self.warp_deformer.bilinear_interpolation = flat_vec(self.warp_deformer.count, FALSE);
+            self.warp_deformer.bilinear_interpolation = flat_vec(self.warp_deformer.count, false);
         }
         // V4_0: Added bit in render_config, no need to upgrade
         if ver < Version::V4_2 {
@@ -315,7 +315,7 @@ impl ParsedModel {
             self.param.unk_zero_2 = flat_vec(self.param.count, Default::default());
             self.param.i_keypoints = flat_vec(self.param.count, IKeypoint(0));
             self.param.cnt_keypoints = flat_vec(self.param.count, 0);
-            self.param.blendshape = flat_vec(self.param.count, FALSE);
+            self.param.blendshape = flat_vec(self.param.count, false);
             self.param.i_blend_maps = flat_vec(self.param.count, IBlendParamMap(0));
             self.param.cnt_blend_maps = flat_vec(self.param.count, 0);
 

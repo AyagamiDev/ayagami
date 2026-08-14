@@ -19,8 +19,8 @@ declare_object!(Part {
         id: Identifier => String,
         param_map_set: &&ParamMapSet,
         forms: &&[PartForm],
-        visible_artmeshes: Bool32,
-        visible_deformers: Bool32,
+        visible_artmeshes: Bool32 => bool,
+        visible_deformers: Bool32 => bool,
         parent: Option<&&Part>,
     },
     Internal {
@@ -42,8 +42,8 @@ declare_object!(Deformer {
         hdr: U32Pair,
         id: Identifier => String,
         param_map_set: &&ParamMapSet,
-        unk_flag1: Bool32,
-        visible: Bool32,
+        unk_flag1: Bool32 => bool,
+        visible: Bool32 => bool,
         part: Option<&&Part>,
         parent: Option<&&Deformer>,
         deformer_type: u32 => DeformerType,
@@ -79,7 +79,7 @@ declare_object!(WarpDeformer {
         x_divs: u32,
     },
     V3_3 {
-        bilinear_interpolation: Bool32,
+        bilinear_interpolation: Bool32 => bool,
     },
     V4_2B {
         // Implicit pointer to first multiply & screen color
@@ -128,8 +128,8 @@ declare_object!(ArtMesh {
         id: Identifier => String,
         param_map_set: &&ParamMapSet,
         forms: &&[ArtMeshForm],
-        unk_flag1: Bool32,
-        visible: Bool32,
+        unk_flag1: Bool32 => bool,
+        visible: Bool32 => bool,
         part: Option<&&Part>,
         deformer: Option<&&Deformer>,
         texture: u32,
@@ -165,7 +165,7 @@ declare_object!(Param {
         max: f32,
         min: f32,
         default: f32,
-        repeat: Bool32,
+        repeat: Bool32 => bool,
         snap_type: u32 => ParamSnapType,
         maps: &&[ParamMap],
     },
@@ -174,7 +174,7 @@ declare_object!(Param {
         keypoints: &[Keypoint],
     },
     V4_2 {
-        blendshape: Bool32,
+        blendshape: Bool32 => bool,
         blend_maps: &&[BlendParamMap],
     }
 });
@@ -205,8 +205,8 @@ declare_object!(RotForm {
         pos_x: f32,
         pos_y: f32,
         scale: f32,
-        flip_x: Bool32,
-        flip_y: Bool32,
+        flip_x: Bool32 => bool,
+        flip_y: Bool32 => bool,
     },
     V5_0 {
         multiply_color: &&MultiplyColor,

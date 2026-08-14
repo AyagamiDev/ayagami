@@ -32,9 +32,6 @@ impl TryFrom<Identifier> for String {
 #[repr(transparent)]
 pub struct Bool32(u32);
 
-pub const FALSE: Bool32 = Bool32(0);
-pub const TRUE: Bool32 = Bool32(1);
-
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, IntoBytes, FromBytes)]
 pub struct U32Pair(u32, u32);
 
@@ -100,12 +97,17 @@ pub trait OptReference: Sized {
     fn get(&self) -> Option<u32>;
 }
 
-impl From<Bool32> for bool {
-    fn from(value: Bool32) -> Self {
+impl TryFrom<Bool32> for bool {
+    type Error = ParseError;
+
+    fn try_from(value: Bool32) -> Result<Self, Self::Error> {
         match value.0 {
-            0 => false,
-            1 => true,
-            a => panic!("Unexpected Bool32 value {0}", a),
+            0 => Ok(false),
+            1 => Ok(true),
+            a => Err(ParseError::InvalidValue(format!(
+                "Unexpected Bool32 value {0}",
+                a
+            ))),
         }
     }
 }
