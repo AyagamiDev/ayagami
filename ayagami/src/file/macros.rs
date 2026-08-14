@@ -183,6 +183,72 @@ macro_rules! parse_object_fields {
     };
 }
 
+macro_rules! validate_object_fields {
+    ( @ $self:ident $obj:ident $model:ident { $field:ident : &&[$type:ty] $(,$($rest:tt)*)? }) => {
+        assert!(paste!{ $self.[<i_ $field>] }.len() == $self.count);
+        assert!(paste!{ $self.[<cnt_ $field>] }.len() == $self.count);
+        paste!{ Self::validate_arrayref(
+            &$self.[<i_ $field>],
+            &$self.[<cnt_ $field>],
+            stringify!($obj.[<$field>]),
+            $model
+        )?;}
+        validate_object_fields!(@ $self $obj $model { $($($rest)*)? });
+    };
+
+    ( @ $self:ident $obj:ident $model:ident { $field:ident : &[$type:ty] $(,$($rest:tt)*)? }) => {
+        assert!(paste!{ $self.[<i_ $field>] }.len() == $self.count);
+        assert!(paste!{ $self.[<cnt_ $field>] }.len() == $self.count);
+        paste!{ Self::validate_arrayref(
+            &$self.[<i_ $field>],
+            &$self.[<cnt_ $field>],
+            stringify!($obj.[<$field>]),
+            $model
+        )?;}
+        validate_object_fields!(@ $self $obj $model { $($($rest)*)? });
+    };
+
+    ( @ $self:ident $obj:ident $model:ident { $field:ident : &&$type:ty $(,$($rest:tt)*)? }) => {
+        assert!(paste!{ $self.[<i_ $field>] }.len() == $self.count);
+        paste!{ Self::validate_ref(&$self.[<i_ $field>], stringify!($obj.$field), $model)?; }
+        validate_object_fields!(@ $self $obj $model { $($($rest)*)? });
+    };
+
+    ( @ $self:ident $obj:ident $model:ident { $field:ident : &$type:ty $(,$($rest:tt)*)? }) => {
+        assert!(paste!{ $self.[<i_ $field>] }.len() == $self.count);
+        paste!{ Self::validate_ref(&$self.[<i_ $field>], stringify!($obj.$field), $model)?; }
+        validate_object_fields!(@ $self $obj $model { $($($rest)*)? });
+    };
+
+    ( @ $self:ident $obj:ident $model:ident { $field:ident : Option<&&$type:ty> $(,$($rest:tt)*)? }) => {
+        assert!(paste!{ $self.[<i_ $field>] }.len() == $self.count);
+        paste!{ Self::validate_opt_ref(&$self.[<i_ $field>], stringify!($obj.$field), $model)?; }
+        validate_object_fields!(@ $self $obj $model { $($($rest)*)? });
+    };
+
+    ( @ $self:ident $obj:ident $model:ident { $field:ident : $file_type:ty => $mem_type: ty $(,$($rest:tt)*)? }) => {
+        assert!($self.$field.len() == $self.count);
+        validate_object_fields!(@ $self $obj $model { $($($rest)*)? });
+    };
+
+    ( @ $self:ident $obj:ident $model:ident { $field:ident : $type:ty $(,$($rest:tt)*)? }) => {
+        assert!($self.$field.len() == $self.count);
+        validate_object_fields!(@ $self $obj $model { $($($rest)*)? });
+    };
+
+    ( @ $self:ident $obj:ident $model:ident { $(,)? } ) => {};
+
+    ( $self:ident, $obj:ident, $model:ident, {
+        $($pass:ident {
+            $($field:tt)+
+        }),+ $(,)?
+    }) => {
+        $(
+            validate_object_fields!(@ $self $obj $model { $($field)+ });
+        )+
+    };
+}
+
 macro_rules! impl_view_getters {
     ( @ { $field:ident : &&[$type:ty] $(,$($rest:tt)*)? }) => {
         paste! {
@@ -341,6 +407,9 @@ macro_rules! declare_index_types {
                 fn new(i: u32) -> Self {
                     Self(i)
                 }
+                fn bound(model: &Model) -> usize {
+                    model.[< $obj:snake >].count
+                }
             }
 
             transparent_reader!([<I $obj>], u32);
@@ -367,6 +436,9 @@ macro_rules! declare_index_types {
                         Some(i) => i as i32,
                         None => -1
                     })
+                }
+                fn bound(model: &Model) -> usize {
+                    model.[< $obj:snake >].count
                 }
             }
 
@@ -454,12 +526,30 @@ macro_rules! declare_object {
             impl Parsable for [<$obj Fields>] {
                 fn parse(&mut self, pass: Pass, data: &mut SectionReader) -> Result<(), ParseError> {
                     parse_object_fields!(self, $obj, pass, data, $spec);
-
                     Ok(())
                 }
             }
 
             impl [<$obj Fields>] {
+                fn pre_validate(&self, _model: &Model) -> Result<(), ParseError> {
+                    validate_object_fields!(self, $obj, _model, $spec);
+                    Ok(())
+                }
+
+                fn validate(&self, model: &Model) -> Result<(), ParseError> {
+                    for i in 0..self.count {
+                        let view = [<$obj View>]::get(model, [<I $obj>](i as u32)).unwrap();
+                        view.validate()?;
+                    }
+                    Ok(())
+                }
+                fn post_validate(&self, model: &Model) -> Result<(), ParseError> {
+                    for i in 0..self.count {
+                        let view = [<$obj View>]::get(model, [<I $obj>](i as u32)).unwrap();
+                        view.post_validate()?;
+                    }
+                    Ok(())
+                }
                 const fn num_fields(pass: Pass) -> usize {
                     let mut count = 0;
                     count_object_fields!(count, pass, $spec);
@@ -558,6 +648,18 @@ macro_rules! declare_primitive {
                     Self::get_index(r.start)..Self::get_index(r.end)
                 }
 
+                fn pre_validate(&self, _model: &Model) -> Result<(), ParseError> {
+                    Ok(())
+                }
+
+                fn validate(&self, _model: &Model) -> Result<(), ParseError> {
+                    Ok(())
+                }
+
+                fn post_validate(&self, _model: &Model) -> Result<(), ParseError> {
+                    Ok(())
+                }
+
                 const fn num_fields(pass: Pass) -> usize {
                     if pass as usize == Pass::$pass as usize {
                         1
@@ -567,6 +669,53 @@ macro_rules! declare_primitive {
                 }
             }
         }
+    };
+}
+
+macro_rules! impl_validator {
+    ( @MACROS $self:ident ) => {
+        #[allow(unused)]
+        macro_rules! check {
+            ( $test:expr ) => {
+                if !$test {
+                    return Err(ParseError::ValidationError(
+                        stringify!($obj), $self.idx().0, stringify!($test).to_string()
+                    ));
+                }
+            }
+        }
+        #[allow(unused)]
+        macro_rules! require {
+            ( $test:expr ) => {
+                if !$test {
+                    return Err(ParseError::ValidationError(
+                        stringify!($obj), $self.idx().0, stringify!($test).to_string()
+                    ));
+                }
+            }
+        }
+    };
+    ( $obj:ident, |&$self:ident| {$($body:tt)*}, |&$self_post:ident| {$($body_post:tt)*}) => {
+        paste! {
+            impl<'model> [<$obj View>]<'model> {
+                fn validate(&$self) -> Result<(), ParseError> {
+                    impl_validator!(@MACROS $self);
+                    $($body)*
+                    Ok(())
+                }
+                fn post_validate(&$self_post) -> Result<(), ParseError> {
+                    impl_validator!(@MACROS $self_post);
+                    $($body_post)*
+                    Ok(())
+                }
+            }
+        }
+    };
+    ( $obj:ident, |&$self:ident| {$($body:tt)*}) => {
+        impl_validator!($obj, |&$self| { $($body)* }, |&self| {});
+    };
+    ( $obj:ident ) => {
+        impl_validator!($obj, |&self| {});
     };
 }
 
@@ -637,7 +786,7 @@ macro_rules! for_each_file_class {
         )+
     };
 
-    ( $parsing_pass:expr, $self:ident, $var:ident, {
+    ( $parsing_pass:expr, $self:ident, &mut $var:ident, {
         Global { $($gfield:tt)* },
         $($pass:ident {
             $($obj:ident),+ $(,)?
@@ -648,6 +797,23 @@ macro_rules! for_each_file_class {
             if ($parsing_pass as usize >= Pass::$pass as usize) {
                 $({
                     let $var = &mut paste! { $self.[< $obj:snake >] };
+                    $body
+                })+
+            }
+        )+
+    };
+
+    ( $parsing_pass:expr, $self:ident, &$var:ident, {
+        Global { $($gfield:tt)* },
+        $($pass:ident {
+            $($obj:ident),+ $(,)?
+        }),+ $(,)?
+    }, $body:block ) => {
+        $(
+            // Workaround for non-const PartialOrd
+            if ($parsing_pass as usize >= Pass::$pass as usize) {
+                $({
+                    let $var = &paste! { $self.[< $obj:snake >] };
                     $body
                 })+
             }
@@ -707,14 +873,32 @@ macro_rules! declare_file_objects {
                 }
                 pub(crate) fn load_counts(&mut self, pass: Pass, counts: &[u32]) {
                     let mut _idx = 0;
-                    for_each_file_class!(pass, self, obj, $spec, {
+                    for_each_file_class!(pass, self, &mut obj, $spec, {
                         obj.count = counts[_idx] as usize;
                         _idx += 1;
                     });
                 }
                 pub(crate) fn parse_objects(&mut self, pass: Pass, data: &mut SectionReader) -> Result<(), ParseError> {
-                    for_each_file_class!(pass, self, obj, $spec, {
+                    for_each_file_class!(pass, self, &mut obj, $spec, {
                         obj.parse(pass, data)?;
+                    });
+                    Ok(())
+                }
+                pub(crate) fn validate(&mut self) -> Result<(), ParseError> {
+                    for_each_file_class!(Pass::Internal, self, &obj, $spec, {
+                        debug!("[{0}]: Prevalidate...", std::any::type_name_of_val(obj));
+                        obj.pre_validate(self)?;
+                    });
+                    for_each_file_class!(Pass::Internal, self, &obj, $spec, {
+                        debug!("[{0}]: Validate...", std::any::type_name_of_val(obj));
+                        obj.validate(self)?;
+                    });
+                    Ok(())
+                }
+                pub(crate) fn post_validate(&self) -> Result<(), ParseError> {
+                    for_each_file_class!(Pass::Internal, self, &obj, $spec, {
+                        debug!("[{0}]: Post validate...", std::any::type_name_of_val(obj));
+                        obj.post_validate(self)?;
                     });
                     Ok(())
                 }

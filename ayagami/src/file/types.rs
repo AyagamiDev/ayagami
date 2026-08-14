@@ -33,7 +33,7 @@ impl TryFrom<Identifier> for String {
 pub struct Bool32(u32);
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, IntoBytes, FromBytes)]
-pub struct U32Pair(u32, u32);
+pub struct U32Pair(pub u32, pub u32);
 
 pub(crate) mod private {
     use super::super::classes::ParsedModel;
@@ -55,6 +55,7 @@ pub(crate) mod private {
         fn offset(&self, offset: u32) -> Self {
             Self::new(self.get() + offset * Self::STRIDE)
         }
+        fn bound(model: &ParsedModel) -> usize;
     }
 
     pub trait PrivOptRef: Sized + super::OptReference {
@@ -65,6 +66,7 @@ pub(crate) mod private {
         fn offset(&self, offset: u32) -> Self {
             Self::new(Some(self.get().unwrap() + offset * Self::STRIDE))
         }
+        fn bound(model: &ParsedModel) -> usize;
     }
 
     pub trait View<'model>: Sized + Debug {

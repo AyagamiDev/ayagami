@@ -28,6 +28,8 @@ pub enum ParseError {
     InvalidOffset(String),
     #[error("Invalid padding: Non-zero {1:#x} at offset {0:#x}")]
     InvalidPadding(usize, u8),
+    #[error("Validation error: {0}[{1}]: {2}")]
+    ValidationError(&'static str, u32, String),
     #[error("Unaligned item count: {0} count {1} not a multiple of {2}")]
     UnalignedItemCount(&'static str, usize, usize),
     #[error("Duplicate reference: {0}")]
@@ -102,6 +104,74 @@ pub(crate) trait Parsable {
             .into_iter()
             .map(|a| <F as TryInto<T>>::try_into(a))
             .collect::<Result<_, _>>()?;
+        Ok(())
+    }
+
+    fn validate_ref<T: PrivRef>(
+        field: &[T],
+        name: &str,
+        model: &ParsedModel,
+    ) -> Result<(), ParseError> {
+        for (i, v) in field.iter().enumerate() {
+            let bound = T::bound(model);
+            if v.get() as usize >= bound {
+                return Err(ParseError::InvalidReference(format!(
+                    "{}[{}] = {} (bound={})",
+                    name,
+                    i,
+                    v.get(),
+                    bound
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_opt_ref<T: PrivOptRef>(
+        field: &[T],
+        name: &str,
+        model: &ParsedModel,
+    ) -> Result<(), ParseError> {
+        for (i, v) in field.iter().enumerate() {
+            let bound = T::bound(model);
+            let Some(value) = v.get() else {
+                continue;
+            };
+            if value as usize >= bound {
+                return Err(ParseError::InvalidReference(format!(
+                    "{}[{}] = {} (bound={})",
+                    name, i, value, bound
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_arrayref<T: PrivRef>(
+        index_field: &[T],
+        count_field: &[u32],
+        name: &str,
+        model: &ParsedModel,
+    ) -> Result<(), ParseError> {
+        for (i, (idx, count)) in index_field.iter().zip(count_field.iter()).enumerate() {
+            if *count == 0 {
+                continue;
+            }
+            let start = idx.get();
+            let end = start.checked_add(count - 1).ok_or_else(|| {
+                ParseError::InvalidReference(format!(
+                    "{}[{}] = base {}, count {} (overflow)",
+                    name, i, start, count
+                ))
+            })?;
+            let bound = T::bound(model);
+            if end as usize >= bound {
+                return Err(ParseError::InvalidReference(format!(
+                    "{}[{}] = [{}..={}] (bound={})",
+                    name, i, start, end, bound
+                )));
+            }
+        }
         Ok(())
     }
 }
@@ -260,7 +330,9 @@ impl ParsedModel {
         }
 
         m.upgrade()?;
+        m.validate()?;
         m.find_refs()?;
+        m.post_validate()?;
 
         m.pose_map = Some(Arc::new(PoseMap::from_model(&m)));
 
@@ -321,6 +393,9 @@ impl ParsedModel {
 
             debug!("Upgrading colors from < V4.2 to V5.0");
             let idx = self.default_colors(1);
+            self.art_mesh.i_color_forms = flat_vec(self.art_mesh.count, idx);
+            self.warp_deformer.i_color_forms = flat_vec(self.warp_deformer.count, idx);
+            self.rot_deformer.i_color_forms = flat_vec(self.rot_deformer.count, idx);
             self.art_mesh_form.i_multiply_color =
                 flat_vec(self.art_mesh_form.count, IMultiplyColor(idx));
             self.art_mesh_form.i_screen_color =

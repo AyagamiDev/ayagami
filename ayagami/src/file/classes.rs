@@ -2,6 +2,7 @@ use super::parse::{Parsable, ParseError, ReadArray, SectionReader};
 use super::types::*;
 use super::{Pass, Version};
 use crate::{core, pose};
+use log::debug;
 use paste::paste;
 use std::ops::Range;
 use std::sync::Arc;
@@ -27,6 +28,9 @@ declare_object!(Part {
         blend_form_maps: Option<&&PartBlendFormMaps>
     }
 });
+impl_validator!(Part, |&self| {
+    check!(*self.f_hdr() == U32Pair(0, 0));
+});
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, FromRepr)]
 #[repr(u32)]
@@ -48,6 +52,15 @@ declare_object!(Deformer {
         parent: Option<&&Deformer>,
         deformer_type: u32 => DeformerType,
         i_typed: u32
+    }
+});
+impl_validator!(Deformer, |&self| {
+    check!(*self.f_hdr() == U32Pair(0, 0));
+    match self.f_deformer_type() {
+        DeformerType::Warp => check!(*self.f_i_typed() as usize <= self.model.warp_deformer.count),
+        DeformerType::Rotation => {
+            check!(*self.f_i_typed() as usize <= self.model.rot_deformer.count)
+        }
     }
 });
 
@@ -91,6 +104,7 @@ declare_object!(WarpDeformer {
     }
 });
 declare_parent!(WarpDeformer, Deformer);
+impl_validator!(WarpDeformer);
 
 declare_object!(RotDeformer {
     Base {
@@ -108,6 +122,7 @@ declare_object!(RotDeformer {
     }
 });
 declare_parent!(RotDeformer, Deformer);
+impl_validator!(RotDeformer);
 
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, PartialEq, Eq, Hash, FromRepr)]
 pub enum BlendMode {
@@ -147,6 +162,11 @@ declare_object!(ArtMesh {
         blend_form_maps: Option<&&ArtMeshBlendFormMaps>
     }
 });
+impl_validator!(ArtMesh, |&self| {
+    check!(*self.f_hdr() == U32Pair(0, 0));
+    check!((self.f_render_config() >> 4) == 0);
+    require!(BlendMode::from_repr(self.f_render_config() & 3).is_some());
+});
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, FromRepr)]
 #[repr(u32)]
@@ -178,6 +198,9 @@ declare_object!(Param {
         blend_maps: &&[BlendParamMap],
     }
 });
+impl_validator!(Param, |&self| {
+    check!(*self.f_hdr() == U32Pair(0, 0));
+});
 
 declare_object!(PartForm {
     Base {
@@ -185,6 +208,7 @@ declare_object!(PartForm {
     }
 });
 declare_parent!(PartForm, Part);
+impl_validator!(PartForm);
 
 declare_object!(WarpForm {
     Base {
@@ -197,6 +221,7 @@ declare_object!(WarpForm {
     }
 });
 declare_parent!(WarpForm, WarpDeformer);
+impl_validator!(WarpForm);
 
 declare_object!(RotForm {
     Base {
@@ -214,6 +239,7 @@ declare_object!(RotForm {
     }
 });
 declare_parent!(RotForm, RotDeformer);
+impl_validator!(RotForm);
 
 declare_object!(ArtMeshForm {
     Base {
@@ -227,6 +253,7 @@ declare_object!(ArtMeshForm {
     }
 });
 declare_parent!(ArtMeshForm, ArtMesh);
+impl_validator!(ArtMeshForm);
 
 declare_primitive!(VertexCoord(f32 => core::Coord), Base);
 
@@ -235,18 +262,21 @@ declare_object!(ParamMapRef {
         map: &&ParamMap
     }
 });
+impl_validator!(ParamMapRef);
 
 declare_object!(ParamMapSet {
     Base {
         refs: &&[ParamMapRef]
     }
 });
+impl_validator!(ParamMapSet);
 
 declare_object!(ParamMap {
     Base {
         keypoints: &[Keypoint]
     }
 });
+impl_validator!(ParamMap);
 
 declare_primitive!(Keypoint(f32), Base);
 
@@ -259,6 +289,7 @@ declare_object!(ArtMeshRef {
         artmesh: Option<&&ArtMesh>
     }
 });
+impl_validator!(ArtMeshRef);
 
 declare_object!(DrawGroup {
     Base {
@@ -268,6 +299,7 @@ declare_object!(DrawGroup {
         min_depth: f32,
     }
 });
+impl_validator!(DrawGroup);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, FromRepr)]
 #[repr(u32)]
@@ -285,6 +317,18 @@ declare_object!(DrawItem {
         draw_group: Option<&&DrawGroup>,
     }
 });
+impl_validator!(DrawItem, |&self| {
+    match self.f_item_type() {
+        DrawItemType::ArtMesh => {
+            check!((*self.f_i_child() as usize) < self.model.art_mesh.count);
+            check!(self.i_draw_group().get().is_none());
+        }
+        DrawItemType::Part => {
+            check!((*self.f_i_child() as usize) < self.model.part.count);
+            check!(self.i_draw_group().get().is_some());
+        }
+    }
+});
 
 declare_object!(Glue {
     V3_0 {
@@ -300,6 +344,10 @@ declare_object!(Glue {
         blend_form_maps: Option<&&GlueBlendFormMaps>
     }
 });
+impl_validator!(Glue, |&self| {
+    check!(*self.f_hdr() == U32Pair(0, 0));
+    check!(self.cnt_coords().is_multiple_of(2));
+});
 
 declare_object!(GlueForm {
     V3_0 {
@@ -307,6 +355,7 @@ declare_object!(GlueForm {
     }
 });
 declare_parent!(GlueForm, Glue);
+impl_validator!(GlueForm);
 
 declare_object!(GlueCoord {
     V3_0 {
@@ -314,6 +363,7 @@ declare_object!(GlueCoord {
         vertex_index: u16,
     }
 });
+impl_validator!(GlueCoord);
 
 declare_object!(MultiplyColor {
     V4_2B {
@@ -322,6 +372,7 @@ declare_object!(MultiplyColor {
         b: f32,
     }
 });
+impl_validator!(MultiplyColor);
 
 declare_object!(ScreenColor {
     V4_2B {
@@ -330,6 +381,11 @@ declare_object!(ScreenColor {
         b: f32,
     }
 });
+impl_validator!(ScreenColor, |&self| {
+    check!(*self.f_r() >= 0. && *self.f_r() <= 1.);
+    check!(*self.f_g() >= 0. && *self.f_g() <= 1.);
+    check!(*self.f_b() >= 0. && *self.f_b() <= 1.);
+});
 
 declare_object!(BlendParamMap {
     V4_2 {
@@ -337,6 +393,7 @@ declare_object!(BlendParamMap {
         neutral_index: u32,
     }
 });
+impl_validator!(BlendParamMap);
 
 declare_object!(BlendFormMap {
     V4_2 {
@@ -347,6 +404,7 @@ declare_object!(BlendFormMap {
         blendweight_limits: &&[BlendWeightLimitRef]
     }
 });
+impl_validator!(BlendFormMap);
 
 // Generics
 impl<'model> BlendFormMapView<'model> {
@@ -371,6 +429,7 @@ declare_object!(WarpBlendFormMaps {
         maps: &&[BlendFormMap]
     }
 });
+impl_validator!(WarpBlendFormMaps);
 
 declare_object!(ArtMeshBlendFormMaps {
     V4_2 {
@@ -378,12 +437,14 @@ declare_object!(ArtMeshBlendFormMaps {
         maps: &&[BlendFormMap]
     }
 });
+impl_validator!(ArtMeshBlendFormMaps);
 
 declare_object!(BlendWeightLimitRef {
     V4_2 {
         limit: &&BlendWeightLimit
     }
 });
+impl_validator!(BlendWeightLimitRef);
 
 declare_object!(BlendWeightLimit {
     V4_2 {
@@ -391,6 +452,7 @@ declare_object!(BlendWeightLimit {
         points: &&[BlendWeightLimitPoint],
     }
 });
+impl_validator!(BlendWeightLimit);
 
 declare_object!(BlendWeightLimitPoint {
     V4_2 {
@@ -398,6 +460,7 @@ declare_object!(BlendWeightLimitPoint {
         weight: f32,
     }
 });
+impl_validator!(BlendWeightLimitPoint);
 
 declare_object!(PartBlendFormMaps {
     V5_0 {
@@ -405,6 +468,7 @@ declare_object!(PartBlendFormMaps {
         maps: &&[BlendFormMap]
     }
 });
+impl_validator!(PartBlendFormMaps);
 
 declare_object!(RotBlendFormMaps {
     V5_0 {
@@ -412,6 +476,7 @@ declare_object!(RotBlendFormMaps {
         maps: &&[BlendFormMap]
     }
 });
+impl_validator!(RotBlendFormMaps);
 
 declare_object!(GlueBlendFormMaps {
     V5_0 {
@@ -419,6 +484,7 @@ declare_object!(GlueBlendFormMaps {
         maps: &&[BlendFormMap]
     }
 });
+impl_validator!(GlueBlendFormMaps);
 
 #[derive(Copy, Clone, Debug, Default)]
 #[repr(C)]
