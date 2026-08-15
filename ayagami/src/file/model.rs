@@ -155,6 +155,25 @@ impl<'model> core::Part<'model> for PartView<'model> {
     special!(blend_form_maps, PartBlendFormMapView);
 
     item_ref!(parent, Option<PartView<'model>>, parent_view);
+
+    fn offscreen(&self) -> bool {
+        self.i_offscreen_part().get().is_some()
+    }
+    fn blend_config(&self) -> Option<BlendConfig> {
+        self.offscreen_part_view().map(|o| *o.f_blend_config())
+    }
+    fn invert_mask(&self) -> Option<bool> {
+        self.offscreen_part_view()
+            .map(|o| *o.f_render_config() & RENDER_INVERT_MASK != 0)
+    }
+    fn clips(&self) -> Option<impl IntoIterator<Item = impl Deref<Target = ArtMeshView<'model>>>> {
+        self.offscreen_part_view().map(|o| {
+            let cl = o.clips_views();
+            cl.into_iter()
+                .filter_map(|i| i.artmesh_view().map(|v| v.into_ref()))
+                .collect::<Vec<_>>()
+        })
+    }
 }
 
 declare_item!(DeformerView);
@@ -249,9 +268,7 @@ impl<'model> core::ArtMesh<'model> for ArtMeshView<'model> {
     child_collection!(forms, Self::Form, forms_views);
     special!(blend_form_maps, ArtMeshBlendFormMapView);
 
-    fn blend_mode(&self) -> core::BlendMode {
-        core::BlendMode::from_repr(*self.f_render_config() & 3).unwrap()
-    }
+    by_value!(blend_config, core::BlendConfig);
     fn culling(&self) -> bool {
         *self.f_render_config() & RENDER_DOUBLE_SIDED == 0
     }
@@ -331,6 +348,19 @@ impl<'model> core::ParamMap<'model> for BlendParamMapView<'model> {
 declare_item!(PartFormView);
 impl<'model> core::PartForm<'model> for PartFormView<'model> {
     by_value!(depth, f32);
+
+    fn multiply_color(&self) -> Option<core::Color> {
+        self.offscreen_view()
+            .map(|v| v.multiply_color_view().color())
+    }
+
+    fn screen_color(&self) -> Option<core::Color> {
+        self.offscreen_view().map(|v| v.screen_color_view().color())
+    }
+
+    fn opacity(&self) -> Option<f32> {
+        self.offscreen_view().map(|v| *v.f_opacity())
+    }
 }
 
 declare_item!(WarpFormView);

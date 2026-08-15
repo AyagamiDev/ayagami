@@ -1062,7 +1062,7 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
 
             let mode = PipelineMode {
                 surface_format,
-                blend_mode: artmesh.blend_mode(),
+                blend_mode: artmesh.blend_config().simple().unwrap_or(BlendMode::Normal),
                 cull: artmesh.culling(),
                 mask: am_data.clip_set.is_some(),
             };

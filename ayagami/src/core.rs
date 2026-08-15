@@ -4,7 +4,9 @@ use std::hash::Hash;
 use std::ops::{Deref, Range};
 use std::sync::Arc;
 
-pub use super::file::classes::{BlendMode, DeformerType, ParamSnapType};
+pub use super::file::classes::{
+    AlphaBlendMode, BlendConfig, BlendMode, ColorBlendMode, DeformerType, ParamSnapType,
+};
 use glam::{f32::Vec2, u32::UVec2};
 
 pub type Coord = Vec2;
@@ -66,6 +68,10 @@ where
     fn blend_form_maps(
         &self,
     ) -> Option<impl IntoIterator<Item = impl Deref<Target = Self::BlendFormMap>>>;
+    fn offscreen(&self) -> bool;
+    fn blend_config(&self) -> Option<BlendConfig>;
+    fn invert_mask(&self) -> Option<bool>;
+    fn clips(&self) -> Option<itm!(ArtMesh)>;
 }
 
 pub enum TypedDeformer<'model, D: Deformer<'model>>
@@ -155,7 +161,7 @@ where
         Self: 'model;
     fn deformer(&self) -> Option<pm!(Deformer)>;
     fn texture(&self) -> u32;
-    fn blend_mode(&self) -> BlendMode;
+    fn blend_config(&self) -> BlendConfig;
     fn culling(&self) -> bool;
     fn invert_mask(&self) -> bool;
     fn vertex_count(&self) -> u32;
@@ -187,7 +193,10 @@ pub trait PartForm<'model>: Item<'model>
 where
     Self: 'model,
 {
+    fn opacity(&self) -> Option<f32>;
     fn depth(&self) -> f32;
+    fn multiply_color(&self) -> Option<Color>;
+    fn screen_color(&self) -> Option<Color>;
 }
 
 pub trait WarpForm<'model>: Item<'model>
