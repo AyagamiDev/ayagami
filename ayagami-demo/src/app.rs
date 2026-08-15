@@ -33,6 +33,7 @@ pub struct AppState {
     physics: Option<physics::PhysicsEngine>,
     pose: pose::Pose,
     needs_settle: bool,
+    physics_enabled: bool,
 }
 
 type ModelRenderer = ayagami_render::ModelRenderer<file::ParsedModel, Arc<file::ParsedModel>>;
@@ -202,6 +203,7 @@ impl AyagamiTestApp {
                 pose: pose::Pose::empty(),
                 physics: None,
                 needs_settle: false,
+                physics_enabled: true,
             },
             info: Default::default(),
             info_param: Default::default(),
@@ -322,7 +324,7 @@ impl AyagamiTestApp {
             let mut value = state.pose.get_flattened(&key).unwrap();
             let mut changed = false;
             ui.horizontal(|ui| {
-                if ui.button("🔄").clicked() {
+                if ui.button("🔄").on_hover_text("Reset to default").clicked() {
                     state.pose.unset(&key);
                     changed = true;
                 }
@@ -415,24 +417,53 @@ impl AyagamiTestApp {
 
         renderer.driver().set_pose(&self.state.pose);
     }
+
+    fn right_panel(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        ui.heading("Physics");
+
+        ui.horizontal(|ui| {
+            if let Some(physics) = self.state.physics.as_mut() {
+                ui.toggle_value(&mut self.state.physics_enabled, "Enabled");
+                if self.state.physics_enabled {
+                    if ui.button("⏹").on_hover_text("Settle physics").clicked() {
+                        self.state.needs_settle = true;
+                    }
+                } else {
+                    if ui
+                        .button("🔄")
+                        .on_hover_text("Reset physics outputs")
+                        .clicked()
+                    {
+                        self.state.needs_settle = true;
+                        for k in physics.output_key_set() {
+                            self.state.pose.unset(k);
+                        }
+                    }
+                }
+            }
+        });
+    }
 }
 
 impl eframe::App for AyagamiTestApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if let Some(physics) = &mut self.state.physics {
-            ctx.input(|i| {
-                let breath = pose::Key::param("ParamBreath");
-                if let Some((_, desc)) = self.state.pose.map().get(&breath) {
-                    let v = ((i.time as f32 / 2. * PI).sin() / 2. + 0.5) * (desc.max - desc.min)
-                        + desc.min;
-                    self.state.pose.set(&breath, v);
-                }
-                if self.state.needs_settle {
-                    physics.settle(&self.state.pose);
-                    self.state.needs_settle = false;
-                }
-                physics.update(&mut self.state.pose, i.stable_dt);
-            });
+        let (time, stable_dt) = ctx.input(|i| (i.time, i.stable_dt));
+
+        let breath = pose::Key::param("ParamBreath");
+        if let Some((_, desc)) = self.state.pose.map().get(&breath) {
+            let v = ((time as f32 / 2. * PI).sin() / 2. + 0.5) * (desc.max - desc.min) + desc.min;
+            self.state.pose.set(&breath, v);
+            ctx.request_repaint();
+        }
+
+        if self.state.physics_enabled
+            && let Some(physics) = &mut self.state.physics
+        {
+            if self.state.needs_settle {
+                physics.settle(&self.state.pose);
+                self.state.needs_settle = false;
+            }
+            physics.update(&mut self.state.pose, stable_dt);
             ctx.request_repaint();
         }
     }
@@ -458,6 +489,14 @@ impl eframe::App for AyagamiTestApp {
                 .show(ui, |ui| {
                     egui::ScrollArea::vertical().show(ui, |ui| {
                         self.left_panel(ui, frame);
+                    });
+                });
+
+            egui::Panel::right("right panel")
+                .frame(egui::Frame::side_top_panel(ui.style()).inner_margin(6))
+                .show(ui, |ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        self.right_panel(ui, frame);
                     });
                 });
         }
