@@ -209,7 +209,7 @@ impl ParsedModel {
         let mut magic = [0; 4];
         rdr.read_exact(&mut magic)?;
 
-        debug!("File magic: {0:?}", &magic);
+        debug!("File magic: {0:?}", magic);
 
         if magic != *FILE_MAGIC {
             return Err(InvalidMagic(magic));
@@ -242,7 +242,7 @@ impl ParsedModel {
             width: rdr.read_f32()?,
             height: rdr.read_f32()?,
         };
-        debug!("Canvas properties: {0:?}", &canvas);
+        debug!("Canvas properties: {0:?}", canvas);
 
         let mut m = ParsedModel {
             canvas,
