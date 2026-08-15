@@ -101,6 +101,7 @@ macro_rules! declare_object_fields {
         paste!{
             #[derive(Debug, Default)]
             pub(crate) struct [<$obj Fields>] {
+                pub(crate) raw_count: usize,
                 pub(crate) count: usize,
                 $($result)*
             }
@@ -125,7 +126,7 @@ macro_rules! parse_object_fields {
             &mut $self.[<cnt_ $field>],
             stringify!($obj.[<i_ $field>]),
             stringify!($obj.[<cnt_ $field>]),
-            $self.count,
+            $self.raw_count,
             $data
         )?;}
         parse_object_fields!(@ $self $obj $data { $($($rest)*)? });
@@ -137,34 +138,34 @@ macro_rules! parse_object_fields {
             &mut $self.[<cnt_ $field>],
             stringify!($obj.[<i_ $field>]),
             stringify!($obj.[<cnt_ $field>]),
-            $self.count,
+            $self.raw_count,
             $data
         )?;}
         parse_object_fields!(@ $self $obj $data { $($($rest)*)? });
     };
 
     ( @ $self:ident $obj:ident $data:ident { $field:ident : &&$type:ty $(,$($rest:tt)*)? }) => {
-        paste!{ Self::parse_ref(&mut $self.[<i_ $field>], stringify!($obj.$field), $self.count, $data)?; }
+        paste!{ Self::parse_ref(&mut $self.[<i_ $field>], stringify!($obj.$field), $self.raw_count, $data)?; }
         parse_object_fields!(@ $self $obj $data { $($($rest)*)? });
     };
 
     ( @ $self:ident $obj:ident $data:ident { $field:ident : &$type:ty $(,$($rest:tt)*)? }) => {
-        paste!{ Self::parse_ref(&mut $self.[<i_ $field>], stringify!($obj.$field), $self.count, $data)?; }
+        paste!{ Self::parse_ref(&mut $self.[<i_ $field>], stringify!($obj.$field), $self.raw_count, $data)?; }
         parse_object_fields!(@ $self $obj $data { $($($rest)*)? });
     };
 
     ( @ $self:ident $obj:ident $data:ident { $field:ident : Option<&&$type:ty> $(,$($rest:tt)*)? }) => {
-        paste!{ Self::parse_opt_ref(&mut $self.[<i_ $field>], stringify!($obj.$field), $self.count, $data)?; }
+        paste!{ Self::parse_opt_ref(&mut $self.[<i_ $field>], stringify!($obj.$field), $self.raw_count, $data)?; }
         parse_object_fields!(@ $self $obj $data { $($($rest)*)? });
     };
 
     ( @ $self:ident $obj:ident $data:ident { $field:ident : $file_type:ty => $mem_type: ty $(,$($rest:tt)*)? }) => {
-        Self::parse_convert::<$file_type, $mem_type>(&mut $self.$field, stringify!($obj.$field), $self.count, $data)?;
+        Self::parse_convert::<$file_type, $mem_type>(&mut $self.$field, stringify!($obj.$field), $self.raw_count, $data)?;
         parse_object_fields!(@ $self $obj $data { $($($rest)*)? });
     };
 
     ( @ $self:ident $obj:ident $data:ident { $field:ident : $type:ty $(,$($rest:tt)*)? }) => {
-        Self::parse_prim(&mut $self.$field, stringify!($obj.$field), $self.count, $data)?;
+        Self::parse_prim(&mut $self.$field, stringify!($obj.$field), $self.raw_count, $data)?;
         parse_object_fields!(@ $self $obj $data { $($($rest)*)? });
     };
 
@@ -185,54 +186,64 @@ macro_rules! parse_object_fields {
 
 macro_rules! validate_object_fields {
     ( @ $self:ident $obj:ident $model:ident { $field:ident : &&[$type:ty] $(,$($rest:tt)*)? }) => {
-        assert!(paste!{ $self.[<i_ $field>] }.len() == $self.count);
-        assert!(paste!{ $self.[<cnt_ $field>] }.len() == $self.count);
-        paste!{ Self::validate_arrayref(
-            &$self.[<i_ $field>],
-            &$self.[<cnt_ $field>],
-            stringify!($obj.[<$field>]),
-            $model
-        )?;}
+        paste! {
+            assert!($self.[<i_ $field>].len() == $self.raw_count, stringify!($obj.i_$field));
+            assert!($self.[<cnt_ $field>].len() == $self.raw_count, stringify!($obj.cnt_$field));
+            Self::validate_arrayref(
+                &$self.[<i_ $field>],
+                &$self.[<cnt_ $field>],
+                stringify!($obj.$field),
+                $model
+            )?;
+        }
         validate_object_fields!(@ $self $obj $model { $($($rest)*)? });
     };
 
     ( @ $self:ident $obj:ident $model:ident { $field:ident : &[$type:ty] $(,$($rest:tt)*)? }) => {
-        assert!(paste!{ $self.[<i_ $field>] }.len() == $self.count);
-        assert!(paste!{ $self.[<cnt_ $field>] }.len() == $self.count);
-        paste!{ Self::validate_arrayref(
-            &$self.[<i_ $field>],
-            &$self.[<cnt_ $field>],
-            stringify!($obj.[<$field>]),
-            $model
-        )?;}
+        paste! {
+            assert!($self.[<i_ $field>].len() == $self.raw_count, stringify!($obj.i_$field));
+            assert!($self.[<cnt_ $field>].len() == $self.raw_count, stringify!($obj.cnt_$field));
+            Self::validate_arrayref(
+                &$self.[<i_ $field>],
+                &$self.[<cnt_ $field>],
+                stringify!($obj.$field),
+                $model
+            )?;
+        }
         validate_object_fields!(@ $self $obj $model { $($($rest)*)? });
     };
 
     ( @ $self:ident $obj:ident $model:ident { $field:ident : &&$type:ty $(,$($rest:tt)*)? }) => {
-        assert!(paste!{ $self.[<i_ $field>] }.len() == $self.count);
-        paste!{ Self::validate_ref(&$self.[<i_ $field>], stringify!($obj.$field), $model)?; }
+        paste! {
+            assert!($self.[<i_ $field>].len() == $self.raw_count, stringify!($obj.i_$field));
+            Self::validate_ref(&$self.[<i_ $field>], stringify!($obj.$field), $model)?;
+        }
         validate_object_fields!(@ $self $obj $model { $($($rest)*)? });
     };
 
     ( @ $self:ident $obj:ident $model:ident { $field:ident : &$type:ty $(,$($rest:tt)*)? }) => {
-        assert!(paste!{ $self.[<i_ $field>] }.len() == $self.count);
-        paste!{ Self::validate_ref(&$self.[<i_ $field>], stringify!($obj.$field), $model)?; }
+        paste! {
+            assert!($self.[<i_ $field>].len() == $self.raw_count, stringify!($obj.i_$field));
+            Self::validate_ref(&$self.[<i_ $field>], stringify!($obj.$field), $model)?;
+        }
         validate_object_fields!(@ $self $obj $model { $($($rest)*)? });
     };
 
     ( @ $self:ident $obj:ident $model:ident { $field:ident : Option<&&$type:ty> $(,$($rest:tt)*)? }) => {
-        assert!(paste!{ $self.[<i_ $field>] }.len() == $self.count);
-        paste!{ Self::validate_opt_ref(&$self.[<i_ $field>], stringify!($obj.$field), $model)?; }
+        paste! {
+            assert!($self.[<i_ $field>].len() == $self.raw_count, stringify!($obj.i_$field));
+            Self::validate_opt_ref(&$self.[<i_ $field>], stringify!($obj.$field), $model)?;
+        }
         validate_object_fields!(@ $self $obj $model { $($($rest)*)? });
     };
 
     ( @ $self:ident $obj:ident $model:ident { $field:ident : $file_type:ty => $mem_type: ty $(,$($rest:tt)*)? }) => {
-        assert!($self.$field.len() == $self.count);
+        assert!($self.$field.len() == $self.raw_count, stringify!($obj.$field));
         validate_object_fields!(@ $self $obj $model { $($($rest)*)? });
     };
 
     ( @ $self:ident $obj:ident $model:ident { $field:ident : $type:ty $(,$($rest:tt)*)? }) => {
-        assert!($self.$field.len() == $self.count);
+        assert!($self.$field.len() == $self.raw_count, stringify!($obj.$field));
         validate_object_fields!(@ $self $obj $model { $($($rest)*)? });
     };
 
@@ -408,7 +419,7 @@ macro_rules! declare_index_types {
                     Self(i)
                 }
                 fn bound(model: &Model) -> usize {
-                    model.[< $obj:snake >].count
+                    model.[< $obj:snake >].raw_count
                 }
             }
 
@@ -438,7 +449,7 @@ macro_rules! declare_index_types {
                     })
                 }
                 fn bound(model: &Model) -> usize {
-                    model.[< $obj:snake >].count
+                    model.[< $obj:snake >].raw_count
                 }
             }
 
@@ -537,6 +548,7 @@ macro_rules! declare_object {
                 }
 
                 fn validate(&self, model: &Model) -> Result<(), ParseError> {
+                    assert!(self.count == self.raw_count);
                     for i in 0..self.count {
                         let view = [<$obj View>]::get(model, [<I $obj>](i as u32)).unwrap();
                         view.validate()?;
@@ -544,6 +556,7 @@ macro_rules! declare_object {
                     Ok(())
                 }
                 fn post_validate(&self, model: &Model) -> Result<(), ParseError> {
+                    assert!(self.count == self.raw_count);
                     for i in 0..self.count {
                         let view = [<$obj View>]::get(model, [<I $obj>](i as u32)).unwrap();
                         view.post_validate()?;
@@ -603,7 +616,8 @@ macro_rules! declare_primitive {
 
             #[derive(Debug, Default)]
             pub(crate) struct [<$obj Fields>] {
-                pub(crate) count: usize,
+                raw_count: usize,
+                count: usize,
                 pub(crate) values: ArrayType<$mem_type>,
             }
         }
@@ -615,14 +629,14 @@ macro_rules! declare_primitive {
                 fn parse(&mut self, pass: Pass, data: &mut SectionReader) -> Result<(), ParseError> {
                     if pass as usize == Pass::$pass as usize {
                         #[allow(clippy::modulo_one)]
-                        if self.count % [<$obj:snake:upper _STRIDE>] != 0 {
+                        if self.raw_count % [<$obj:snake:upper _STRIDE>] != 0 {
                             return Err(ParseError::UnalignedItemCount(
                                 stringify!($obj),
-                                self.count,
+                                self.raw_count,
                                 [<$obj:snake:upper _STRIDE>]
                             ));
                         }
-                        let count = self.count / [<$obj:snake:upper _STRIDE>];
+                        let count = self.raw_count / [<$obj:snake:upper _STRIDE>];
                         Self::parse_prim(&mut self.values, stringify!($obj), count, data)?;
                     }
                     Ok(())
@@ -649,6 +663,7 @@ macro_rules! declare_primitive {
                 }
 
                 fn pre_validate(&self, _model: &Model) -> Result<(), ParseError> {
+                    assert!(self.values.len() * [<$obj:snake:upper _STRIDE>] == self.raw_count);
                     Ok(())
                 }
 
@@ -874,7 +889,7 @@ macro_rules! declare_file_objects {
                 pub(crate) fn load_counts(&mut self, pass: Pass, counts: &[u32]) {
                     let mut _idx = 0;
                     for_each_file_class!(pass, self, &mut obj, $spec, {
-                        obj.count = counts[_idx] as usize;
+                        obj.raw_count = counts[_idx] as usize;
                         _idx += 1;
                     });
                 }
@@ -888,6 +903,9 @@ macro_rules! declare_file_objects {
                     for_each_file_class!(Pass::Internal, self, &obj, $spec, {
                         debug!("[{0}]: Prevalidate...", std::any::type_name_of_val(obj));
                         obj.pre_validate(self)?;
+                    });
+                    for_each_file_class!(Pass::Internal, self, &mut obj, $spec, {
+                        obj.count = obj.raw_count;
                     });
                     for_each_file_class!(Pass::Internal, self, &obj, $spec, {
                         debug!("[{0}]: Validate...", std::any::type_name_of_val(obj));

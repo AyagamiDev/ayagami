@@ -368,64 +368,68 @@ impl ParsedModel {
         }
 
         // Internal stuff
-        self.part.i_blend_form_maps = flat_vec(self.part.count, None.into());
-        self.art_mesh.i_blend_form_maps = flat_vec(self.art_mesh.count, None.into());
-        self.rot_deformer.i_blend_form_maps = flat_vec(self.rot_deformer.count, None.into());
-        self.warp_deformer.i_blend_form_maps = flat_vec(self.warp_deformer.count, None.into());
-        self.glue.i_blend_form_maps = flat_vec(self.glue.count, None.into());
+        self.part.i_blend_form_maps = flat_vec(self.part.raw_count, None.into());
+        self.art_mesh.i_blend_form_maps = flat_vec(self.art_mesh.raw_count, None.into());
+        self.rot_deformer.i_blend_form_maps = flat_vec(self.rot_deformer.raw_count, None.into());
+        self.warp_deformer.i_blend_form_maps = flat_vec(self.warp_deformer.raw_count, None.into());
+        self.glue.i_blend_form_maps = flat_vec(self.glue.raw_count, None.into());
+        self.offscreen_part.i_blend_form_maps =
+            flat_vec(self.offscreen_part.raw_count, None.into());
 
-        self.rot_deformer.i_deformer = flat_vec(self.rot_deformer.count, None.into());
-        self.warp_deformer.i_deformer = flat_vec(self.warp_deformer.count, None.into());
+        self.rot_deformer.i_deformer = flat_vec(self.rot_deformer.raw_count, None.into());
+        self.warp_deformer.i_deformer = flat_vec(self.warp_deformer.raw_count, None.into());
 
         if ver < Version::V3_3 {
             debug!("Upgrading to V3.3");
-            self.warp_deformer.bilinear_interpolation = flat_vec(self.warp_deformer.count, false);
+            self.warp_deformer.bilinear_interpolation =
+                flat_vec(self.warp_deformer.raw_count, false);
         }
         // V4_0: Added bit in render_config, no need to upgrade
         if ver < Version::V4_2 {
             debug!("Upgrading to V4.2");
-            self.param.unk_zero_2 = flat_vec(self.param.count, Default::default());
-            self.param.i_keypoints = flat_vec(self.param.count, IKeypoint(0));
-            self.param.cnt_keypoints = flat_vec(self.param.count, 0);
-            self.param.blendshape = flat_vec(self.param.count, false);
-            self.param.i_blend_maps = flat_vec(self.param.count, IBlendParamMap(0));
-            self.param.cnt_blend_maps = flat_vec(self.param.count, 0);
+            self.param.unk_zero_2 = flat_vec(self.param.raw_count, Default::default());
+            self.param.i_keypoints = flat_vec(self.param.raw_count, IKeypoint(0));
+            self.param.cnt_keypoints = flat_vec(self.param.raw_count, 0);
+            self.param.blendshape = flat_vec(self.param.raw_count, false);
+            self.param.i_blend_maps = flat_vec(self.param.raw_count, IBlendParamMap(0));
+            self.param.cnt_blend_maps = flat_vec(self.param.raw_count, 0);
 
             debug!("Upgrading colors from < V4.2 to V5.0");
             let idx = self.default_colors(1);
-            self.art_mesh.i_color_forms = flat_vec(self.art_mesh.count, idx);
-            self.warp_deformer.i_color_forms = flat_vec(self.warp_deformer.count, idx);
-            self.rot_deformer.i_color_forms = flat_vec(self.rot_deformer.count, idx);
+            self.art_mesh.i_color_forms = flat_vec(self.art_mesh.raw_count, idx);
+            self.warp_deformer.i_color_forms = flat_vec(self.warp_deformer.raw_count, idx);
+            self.rot_deformer.i_color_forms = flat_vec(self.rot_deformer.raw_count, idx);
             self.art_mesh_form.i_multiply_color =
-                flat_vec(self.art_mesh_form.count, IMultiplyColor(idx));
+                flat_vec(self.art_mesh_form.raw_count, IMultiplyColor(idx));
             self.art_mesh_form.i_screen_color =
-                flat_vec(self.art_mesh_form.count, IScreenColor(idx));
-            self.warp_form.i_multiply_color = flat_vec(self.warp_form.count, IMultiplyColor(idx));
-            self.warp_form.i_screen_color = flat_vec(self.warp_form.count, IScreenColor(idx));
-            self.rot_form.i_multiply_color = flat_vec(self.rot_form.count, IMultiplyColor(idx));
-            self.rot_form.i_screen_color = flat_vec(self.rot_form.count, IScreenColor(idx));
+                flat_vec(self.art_mesh_form.raw_count, IScreenColor(idx));
+            self.warp_form.i_multiply_color =
+                flat_vec(self.warp_form.raw_count, IMultiplyColor(idx));
+            self.warp_form.i_screen_color = flat_vec(self.warp_form.raw_count, IScreenColor(idx));
+            self.rot_form.i_multiply_color = flat_vec(self.rot_form.raw_count, IMultiplyColor(idx));
+            self.rot_form.i_screen_color = flat_vec(self.rot_form.raw_count, IScreenColor(idx));
         } else if ver < Version::V5_0 {
             debug!("Upgrading colors from V4.2 to V5.0");
             self.art_mesh_form
                 .i_multiply_color
-                .resize(self.art_mesh_form.count, IMultiplyColor(0));
+                .resize(self.art_mesh_form.raw_count, IMultiplyColor(0));
             self.art_mesh_form
                 .i_screen_color
-                .resize(self.art_mesh_form.count, IScreenColor(0));
+                .resize(self.art_mesh_form.raw_count, IScreenColor(0));
             self.warp_form
                 .i_multiply_color
-                .resize(self.warp_form.count, IMultiplyColor(0));
+                .resize(self.warp_form.raw_count, IMultiplyColor(0));
             self.warp_form
                 .i_screen_color
-                .resize(self.warp_form.count, IScreenColor(0));
+                .resize(self.warp_form.raw_count, IScreenColor(0));
             self.rot_form
                 .i_multiply_color
-                .resize(self.rot_form.count, IMultiplyColor(0));
+                .resize(self.rot_form.raw_count, IMultiplyColor(0));
             self.rot_form
                 .i_screen_color
-                .resize(self.rot_form.count, IScreenColor(0));
+                .resize(self.rot_form.raw_count, IScreenColor(0));
 
-            for i in 0..self.art_mesh.count {
+            for i in 0..self.art_mesh.raw_count {
                 let v = ArtMeshView::get(self, IArtMesh::new(i as u32)).unwrap();
                 let r = v.range_forms();
                 for (color, j) in (*v.f_i_color_forms()..).zip(r.start.0..r.end.0) {
@@ -433,7 +437,7 @@ impl ParsedModel {
                     self.art_mesh_form.i_screen_color[j as usize] = IScreenColor(color);
                 }
             }
-            for i in 0..self.rot_deformer.count {
+            for i in 0..self.rot_deformer.raw_count {
                 let v = RotDeformerView::get(self, IRotDeformer::new(i as u32)).unwrap();
                 let r = v.range_forms();
                 for (color, j) in (*v.f_i_color_forms()..).zip(r.start.0..r.end.0) {
@@ -441,7 +445,7 @@ impl ParsedModel {
                     self.rot_form.i_screen_color[j as usize] = IScreenColor(color);
                 }
             }
-            for i in 0..self.warp_deformer.count {
+            for i in 0..self.warp_deformer.raw_count {
                 let v = WarpDeformerView::get(self, IWarpDeformer::new(i as u32)).unwrap();
                 let r = v.range_forms();
                 for (color, j) in (*v.f_i_color_forms()..).zip(r.start.0..r.end.0) {
