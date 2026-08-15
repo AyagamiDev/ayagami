@@ -215,7 +215,7 @@ impl<'a> SectionReader<'a> {
     }
 
     pub(crate) fn advance_to(&mut self, to: u32) -> Result<(), ParseError> {
-        const MAX_SKIP: usize = 0x1000;
+        const MAX_SKIP: usize = 0x2000;
         let mut buf = [0; MAX_SKIP];
 
         let to = to as usize;
@@ -455,6 +455,21 @@ impl ParsedModel {
             }
         }
 
+        if ver < Version::V5_3 {
+            self.part.i_offscreen_part = flat_vec(self.part.raw_count, None.into());
+            self.part_form.i_offscreen = flat_vec(self.part_form.raw_count, None.into());
+            self.art_mesh.blend_config = self
+                .art_mesh
+                .render_config
+                .iter()
+                .map(|r| BlendConfig {
+                    color: ColorBlendMode::from_repr(r & 3).unwrap(),
+                    alpha: AlphaBlendMode::Over,
+                    pad: 0,
+                })
+                .collect();
+        }
+
         Ok(())
     }
 
@@ -475,14 +490,19 @@ impl ParsedModel {
         }
 
         macro_rules! blend_form_map {
-            ($obj:ident, $field:ident) => {
+            ($obj:ident, $objfield:ident) => {
+                paste! {
+                    blend_form_map!($obj, $objfield, [<i_ $obj:snake>])
+                }
+            };
+            ($obj:ident, $objfield:ident, $field:ident) => {
                 paste! {
                     for i in 0..self.[<$obj:snake _blend_form_maps>].count {
                         let bfm =
                             [<$obj BlendFormMapsView>]::get(self, [<I $obj BlendFormMaps>]::new(i as u32)).unwrap();
-                        let j = bfm.[<i_ $obj:lower>]().0 as usize;
+                        let j = bfm.$field().0 as usize;
                         let idx = bfm.idx();
-                        let item = &mut self.$field.i_blend_form_maps[j];
+                        let item = &mut self.$objfield.i_blend_form_maps[j];
                         if let Some(p) = item.get() {
                             return Err(DuplicateReference(format!(
                                 "{0} referenced by two blend form maps: {1:?} and {2:?}",
@@ -497,11 +517,12 @@ impl ParsedModel {
             };
         }
 
-        blend_form_map!(ArtMesh, art_mesh);
+        blend_form_map!(ArtMesh, art_mesh, i_artmesh);
         blend_form_map!(Rot, rot_deformer);
         blend_form_map!(Warp, warp_deformer);
         blend_form_map!(Part, part);
         blend_form_map!(Glue, glue);
+        blend_form_map!(OffscreenPart, offscreen_part);
 
         // TODO: There's probably a better way...
         if let Some(dg) = self

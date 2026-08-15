@@ -250,7 +250,7 @@ impl<'model> core::ArtMesh<'model> for ArtMeshView<'model> {
     special!(blend_form_maps, ArtMeshBlendFormMapView);
 
     fn blend_mode(&self) -> core::BlendMode {
-        core::BlendMode::from_repr(*self.f_render_config() as usize & 3).unwrap()
+        core::BlendMode::from_repr(*self.f_render_config() & 3).unwrap()
     }
     fn culling(&self) -> bool {
         *self.f_render_config() & RENDER_DOUBLE_SIDED == 0

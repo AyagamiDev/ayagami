@@ -50,6 +50,7 @@ pub(crate) enum Pass {
     V4_2B,
     V4_2,
     V5_0,
+    V5_3A,
     V5_3,
     Internal,
 }
