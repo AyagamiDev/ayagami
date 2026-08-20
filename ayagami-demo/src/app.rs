@@ -326,7 +326,11 @@ impl AyagamiTestApp {
             let mut value = state.pose.get_flattened(&key).unwrap();
             let mut changed = false;
             ui.horizontal(|ui| {
-                if ui.button("🔄").on_hover_text("Reset to default").clicked() {
+                if ui
+                    .add_enabled(state.pose.has_value(&key), egui::Button::new("🔄"))
+                    .on_hover_text("Reset to default")
+                    .clicked()
+                {
                     state.pose.unset(&key);
                     changed = true;
                 }
