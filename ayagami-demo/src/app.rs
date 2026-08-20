@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     f64::consts::PI,
     io::{Cursor, Read, Seek},
     sync::{Arc, Mutex},
@@ -34,6 +34,7 @@ const PARAM_BREATH: pose::Key<'static> = pose::Key::param("ParamBreath");
 pub struct AppState {
     transform: Affine2,
     physics: Option<physics::PhysicsEngine>,
+    rigged_parameters: HashSet<pose::Key<'static>>,
     pose: pose::Pose,
     user_pose: pose::Pose,
     physics_pose: pose::Pose,
@@ -125,6 +126,12 @@ impl AyagamiTestApp {
         let texref: Vec<&[u8]> = texdata.iter().map(|v| &v[..]).collect();
         info!("Loading model into renderer...");
         self.model = Some(model.clone());
+        let mut rigged_parameters = HashSet::new();
+        for param in model.params() {
+            if !param.param_maps().is_empty() || !param.blend_param_maps().is_empty() {
+                rigged_parameters.insert(pose::Key::from_param(param.id().to_string()));
+            }
+        }
         let mut pose = Pose::new(&*model);
         self.renderer.lock().unwrap().load_model(model, &texref)?;
         self.renderer.lock().unwrap().driver().apply_pose(&pose);
@@ -132,6 +139,7 @@ impl AyagamiTestApp {
         pose.update(&self.state.user_pose);
         self.state.user_pose = pose.clone();
         self.state.pose = pose;
+        self.state.rigged_parameters = rigged_parameters;
 
         self.info = None;
         self.info_param.clear();
@@ -331,19 +339,51 @@ impl AyagamiTestApp {
             }
             let key = pose::Key::param(&param.id);
             let mut value = state.pose.get_flattened(&key).unwrap();
+            let (physics_input, physics_output) = state
+                .physics
+                .as_ref()
+                .map(|p| {
+                    (
+                        p.input_key_set().contains(&key),
+                        p.output_key_set().contains(&key),
+                    )
+                })
+                .unwrap_or((false, false));
+            let (physics_type, mut physics_type_hint) = match (physics_input, physics_output) {
+                (false, false) => ("", "Normal parameter (no physics)"),
+                (true, false) => ("○", "Physics input"),
+                (false, true) => ("⏺", "Physics output"),
+                (true, true) => ("◑", "Physics input and output"),
+            };
+
             ui.horizontal(|ui| {
+                let phys = if physics_output && state.user_pose.has_value(&key) {
+                    if physics_input {
+                        physics_type_hint = "Physics input and output (overridden)";
+                    } else {
+                        physics_type_hint = "Physics output (overridden)";
+                    }
+                    egui::RichText::new(physics_type).color(egui::Color32::RED)
+                } else if physics_type.is_empty() {
+                    if !state.rigged_parameters.contains(&key) {
+                        physics_type_hint = "Unused parameter";
+                        egui::RichText::new("⛶")
+                    } else {
+                        egui::RichText::new("⏵")
+                    }
+                } else {
+                    egui::RichText::new(physics_type)
+                };
+                ui.label(phys)
+                    .on_hover_cursor(egui::CursorIcon::Default)
+                    .on_hover_text(physics_type_hint);
                 if ui
                     .add_enabled(state.user_pose.has_value(&key), egui::Button::new("🔄"))
                     .on_hover_text("Reset to default")
                     .clicked()
                 {
                     state.user_pose.unset(&key);
-                    if !state
-                        .physics
-                        .as_ref()
-                        .map(|p| p.output_key_set().contains(&key))
-                        .unwrap_or(false)
-                    {
+                    if !physics_output {
                         state.physics_pose.unset(&key);
                     }
                 }
@@ -351,7 +391,9 @@ impl AyagamiTestApp {
                 // it. We don't want that for physics outputs/breath, so explicitly round
                 // but only commit if the slider was touched.
                 value = (value * 100.).round() / 100.;
-                let res = ui.add(egui::Slider::new(&mut value, param.min..=param.max).text(label));
+                let res = ui
+                    .add(egui::Slider::new(&mut value, param.min..=param.max).text(label))
+                    .on_hover_text_at_pointer(&param.id);
                 if res.changed() {
                     if key == PARAM_BREATH {
                         state.breath_enabled = false;
