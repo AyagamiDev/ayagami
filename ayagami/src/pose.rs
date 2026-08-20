@@ -206,7 +206,7 @@ impl Value {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Pose {
     map: Arc<PoseMap>,
     values: HashMap<usize, Value>,
