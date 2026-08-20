@@ -5,6 +5,8 @@ use ayagami_demo::AyagamiTestApp;
 // When compiling natively:
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
+    use eframe::egui::Vec2;
+
     if std::env::var("RUST_LOG").is_ok() {
         env_logger::init();
     } else {
@@ -15,6 +17,7 @@ fn main() {
     }
 
     let mut native_options = eframe::NativeOptions::default();
+    native_options.viewport.inner_size = Some(Vec2::new(1280., 800.));
     if let eframe::egui_wgpu::WgpuSetup::CreateNew(setup) =
         &mut native_options.wgpu_options.wgpu_setup
     {
