@@ -280,7 +280,7 @@ impl AyagamiTestApp {
             vec2(1., dims_px.x / dims_px.y)
         };
 
-        let transform = self.state.transform * Affine2::from_scale(1.8 * scale);
+        let transform = self.state.transform * Affine2::from_scale(1.2 * scale);
 
         let cb = egui_wgpu::Callback::new_paint_callback(
             rect,
