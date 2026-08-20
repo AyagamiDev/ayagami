@@ -30,6 +30,7 @@ impl Vec2Ext for Vec2 {
     }
 }
 
+#[derive(Copy, Clone)]
 pub enum XInputFunction {
     /// Normal rotation. X motion is rotated by input angle, and is therefore always perpendicular to
     /// the resting pendulum position.
@@ -55,6 +56,7 @@ pub enum XInputFunction {
     CosineSquareScaled,
 }
 
+#[derive(Clone)]
 pub struct PhysicsOptions {
     /// Minimum frame rate for simulation. If the physics system is called less
     /// frequently, it will internally simulate multiple frames, to ensure stability.
@@ -124,7 +126,7 @@ impl PhysicsOptions {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Pendulum {
     pivot: Vec2,
     g_angle: f32,
@@ -222,6 +224,7 @@ impl Pendulum {
     }
 }
 
+#[derive(Clone)]
 pub struct System {
     gravity_angle: f32,
     pendulums: Vec<Pendulum>,
@@ -330,6 +333,7 @@ impl System {
     }
 }
 
+#[derive(Clone)]
 pub struct PhysicsEngine {
     meta_fps: Option<f32>,
     options: PhysicsOptions,
