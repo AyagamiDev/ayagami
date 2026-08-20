@@ -481,11 +481,11 @@ impl PhysicsEngine {
         self.options = options;
     }
 
-    pub fn input_key_set(&self) -> impl Iterator<Item = &pose::Key<'_>> {
-        self.input_key_set.iter()
+    pub fn input_key_set(&self) -> &HashSet<pose::Key<'static>> {
+        &self.input_key_set
     }
 
-    pub fn output_key_set(&self) -> impl Iterator<Item = &pose::Key<'_>> {
-        self.output_key_set.iter()
+    pub fn output_key_set(&self) -> &HashSet<pose::Key<'static>> {
+        &self.output_key_set
     }
 }
