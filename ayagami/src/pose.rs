@@ -10,10 +10,10 @@ pub enum Key<'a> {
 }
 
 impl<'a> Key<'a> {
-    pub fn param(k: &str) -> Key<'_> {
+    pub const fn param(k: &str) -> Key<'_> {
         Key::Param(Cow::Borrowed(k))
     }
-    pub fn part(k: &str) -> Key<'_> {
+    pub const fn part(k: &str) -> Key<'_> {
         Key::Part(Cow::Borrowed(k))
     }
     pub fn from_param(k: String) -> Key<'a> {
