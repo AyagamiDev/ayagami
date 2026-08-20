@@ -34,6 +34,7 @@ pub struct AppState {
     pose: pose::Pose,
     needs_settle: bool,
     physics_enabled: bool,
+    bg_color: egui::Color32,
 }
 
 type ModelRenderer = ayagami_render::ModelRenderer<file::ParsedModel, Arc<file::ParsedModel>>;
@@ -204,6 +205,7 @@ impl AyagamiTestApp {
                 physics: None,
                 needs_settle: false,
                 physics_enabled: true,
+                bg_color: egui::Color32::TRANSPARENT,
             },
             info: Default::default(),
             info_param: Default::default(),
@@ -419,8 +421,13 @@ impl AyagamiTestApp {
     }
 
     fn right_panel(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        ui.heading("Physics");
+        ui.heading("Canvas");
+        ui.horizontal(|ui| {
+            ui.label("Background color");
+            ui.color_edit_button_srgba(&mut self.state.bg_color);
+        });
 
+        ui.heading("Physics");
         ui.horizontal(|ui| {
             if let Some(physics) = self.state.physics.as_mut() {
                 ui.toggle_value(&mut self.state.physics_enabled, "Enabled");
@@ -532,6 +539,7 @@ impl eframe::App for AyagamiTestApp {
         });
 
         let mut frame = egui::Frame::canvas(ui.style());
+        frame = frame.fill(frame.fill.blend(self.state.bg_color));
 
         if ui.input(|inp| !inp.raw.hovered_files.is_empty()) {
             frame = frame.fill(Color32::LIGHT_BLUE);
