@@ -585,6 +585,7 @@ impl eframe::App for AyagamiTestApp {
 
         if self.renderer.lock().unwrap().is_loaded() {
             egui::Panel::left("left panel")
+                .resizable(false)
                 .frame(egui::Frame::side_top_panel(ui.style()).inner_margin(6))
                 .show(ui, |ui| {
                     egui::ScrollArea::vertical().show(ui, |ui| {
@@ -593,6 +594,7 @@ impl eframe::App for AyagamiTestApp {
                 });
 
             egui::Panel::right("right panel")
+                .resizable(false)
                 .frame(egui::Frame::side_top_panel(ui.style()).inner_margin(6))
                 .show(ui, |ui| {
                     egui::ScrollArea::vertical().show(ui, |ui| {
