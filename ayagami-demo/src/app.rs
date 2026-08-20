@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    f32::consts::PI,
+    f64::consts::PI,
     io::{Cursor, Read, Seek},
     sync::{Arc, Mutex},
 };
@@ -28,12 +28,19 @@ const VERSION: &str = git_version!(cargo_prefix = "v", fallback = "unknown");
 
 const FALLBACK_FONT: &[u8] = include_bytes!("../assets/DroidSansFallback.ttf");
 
+const PARAM_BREATH: pose::Key<'static> = pose::Key::param("ParamBreath");
+
+#[derive(Default)]
 pub struct AppState {
     transform: Affine2,
     physics: Option<physics::PhysicsEngine>,
     pose: pose::Pose,
+    user_pose: pose::Pose,
+    physics_pose: pose::Pose,
     needs_settle: bool,
     physics_enabled: bool,
+    breath_enabled: bool,
+    breath_time: f64,
     bg_color: egui::Color32,
 }
 
@@ -120,8 +127,10 @@ impl AyagamiTestApp {
         self.model = Some(model.clone());
         let mut pose = Pose::new(&*model);
         self.renderer.lock().unwrap().load_model(model, &texref)?;
-        pose.update(&self.state.pose);
         self.renderer.lock().unwrap().driver().apply_pose(&pose);
+        self.state.physics_pose = pose.clone();
+        pose.update(&self.state.user_pose);
+        self.state.user_pose = pose.clone();
         self.state.pose = pose;
 
         self.info = None;
@@ -200,12 +209,10 @@ impl AyagamiTestApp {
             model: None,
             renderer,
             state: AppState {
-                transform: Default::default(),
-                pose: pose::Pose::empty(),
-                physics: None,
-                needs_settle: false,
                 physics_enabled: true,
+                breath_enabled: true,
                 bg_color: egui::Color32::TRANSPARENT,
+                ..Default::default()
             },
             info: Default::default(),
             info_param: Default::default(),
@@ -324,15 +331,21 @@ impl AyagamiTestApp {
             }
             let key = pose::Key::param(&param.id);
             let mut value = state.pose.get_flattened(&key).unwrap();
-            let mut changed = false;
             ui.horizontal(|ui| {
                 if ui
-                    .add_enabled(state.pose.has_value(&key), egui::Button::new("🔄"))
+                    .add_enabled(state.user_pose.has_value(&key), egui::Button::new("🔄"))
                     .on_hover_text("Reset to default")
                     .clicked()
                 {
-                    state.pose.unset(&key);
-                    changed = true;
+                    state.user_pose.unset(&key);
+                    if !state
+                        .physics
+                        .as_ref()
+                        .map(|p| p.output_key_set().contains(&key))
+                        .unwrap_or(false)
+                    {
+                        state.physics_pose.unset(&key);
+                    }
                 }
                 // Slider::max_decimals() force rounds the value even if the user doesn't touch
                 // it. We don't want that for physics outputs/breath, so explicitly round
@@ -340,6 +353,9 @@ impl AyagamiTestApp {
                 value = (value * 100.).round() / 100.;
                 let res = ui.add(egui::Slider::new(&mut value, param.min..=param.max).text(label));
                 if res.changed() {
+                    if key == PARAM_BREATH {
+                        state.breath_enabled = false;
+                    }
                     if res.ctx.input(|input| input.modifiers.shift)
                         && let Some(closest) = kp_param.get(&param.id).and_then(|v| {
                             v.iter().min_by(|a, b| {
@@ -349,8 +365,7 @@ impl AyagamiTestApp {
                     {
                         value = *closest;
                     }
-                    state.pose.set(&key, value);
-                    changed = true;
+                    state.user_pose.set(&key, value);
                 }
             });
         }
@@ -421,6 +436,8 @@ impl AyagamiTestApp {
             "",
         );
 
+        self.state.pose = self.state.physics_pose.clone();
+        self.state.pose.update(&self.state.user_pose);
         renderer.driver().set_pose(&self.state.pose);
     }
 
@@ -431,9 +448,9 @@ impl AyagamiTestApp {
             ui.color_edit_button_srgba(&mut self.state.bg_color);
         });
 
-        ui.heading("Physics");
-        ui.horizontal(|ui| {
-            if let Some(physics) = self.state.physics.as_mut() {
+        if let Some(physics) = self.state.physics.as_ref() {
+            ui.heading("Physics");
+            ui.horizontal(|ui| {
                 ui.toggle_value(&mut self.state.physics_enabled, "Enabled");
                 if self.state.physics_enabled {
                     if ui.button("⏹").on_hover_text("Settle physics").clicked() {
@@ -447,34 +464,64 @@ impl AyagamiTestApp {
                     {
                         self.state.needs_settle = true;
                         for k in physics.output_key_set() {
-                            self.state.pose.unset(k);
+                            self.state.physics_pose.unset(k);
                         }
                     }
                 }
-            }
-        });
+            });
+        }
+
+        if self.state.pose.has_key(&PARAM_BREATH) {
+            ui.heading("Breath");
+            ui.horizontal(|ui| {
+                if ui
+                    .toggle_value(&mut self.state.breath_enabled, "Enabled")
+                    .changed()
+                {
+                    // When explicitly enabled, remove user override on breath
+                    if self.state.breath_enabled {
+                        self.state.user_pose.unset(&PARAM_BREATH);
+                    }
+                }
+                if ui
+                    .add_enabled(!self.state.breath_enabled, egui::Button::new("🔄"))
+                    .on_hover_text("Reset breath output")
+                    .clicked()
+                {
+                    // When explicitly reset, remove user override on breath
+                    self.state.user_pose.unset(&PARAM_BREATH);
+                    self.state.physics_pose.unset(&PARAM_BREATH);
+                    self.state.breath_time = 0.;
+                }
+            });
+        }
     }
 }
 
 impl eframe::App for AyagamiTestApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let (time, stable_dt) = ctx.input(|i| (i.time, i.stable_dt));
+        let (_, stable_dt) = ctx.input(|i| (i.time, i.stable_dt));
 
-        let breath = pose::Key::param("ParamBreath");
-        if let Some((_, desc)) = self.state.pose.map().get(&breath) {
-            let v = ((time as f32 / 2. * PI).sin() / 2. + 0.5) * (desc.max - desc.min) + desc.min;
-            self.state.pose.set(&breath, v);
-            ctx.request_repaint();
+        if self.state.breath_enabled {
+            let time = self.state.breath_time;
+            self.state.breath_time += stable_dt as f64;
+            if let Some((_, desc)) = self.state.pose.map().get(&PARAM_BREATH) {
+                let v =
+                    ((time / 2. * PI).cos() / -2. + 0.5) as f32 * (desc.max - desc.min) + desc.min;
+                self.state.physics_pose.set(&PARAM_BREATH, v);
+                ctx.request_repaint();
+            }
         }
 
         if self.state.physics_enabled
             && let Some(physics) = &mut self.state.physics
         {
+            self.state.physics_pose.update(&self.state.user_pose);
             if self.state.needs_settle {
-                physics.settle(&self.state.pose);
+                physics.settle(&self.state.physics_pose);
                 self.state.needs_settle = false;
             }
-            physics.update(&mut self.state.pose, stable_dt);
+            physics.update(&mut self.state.physics_pose, stable_dt);
             ctx.request_repaint();
         }
     }
