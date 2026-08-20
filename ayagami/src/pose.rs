@@ -253,6 +253,13 @@ impl Pose {
         self.map.has_key(key)
     }
 
+    pub fn has_value(&self, key: &Key) -> bool {
+        self.map
+            .get(key)
+            .map(|(idx, _)| self.values.contains_key(&idx))
+            .unwrap_or(false)
+    }
+
     pub fn get(&self, key: &Key) -> Option<&Value> {
         self.values.get(&self.map.get(key)?.0)
     }
