@@ -10,7 +10,7 @@ use crate::{
     pose::{self, Value},
 };
 
-use log::{debug, warn};
+use log::{debug, error, warn};
 
 const REF_FPS: f32 = 30.;
 const DEFAULT_COMPAT_FPS: f32 = 60.;
@@ -134,6 +134,10 @@ pub struct Pendulum {
     velocity: f32,
     bob: Vec2,
     cfg: meta::PhysicsVertex,
+    #[allow(unused)]
+    id: String,
+    #[allow(unused)]
+    index: usize,
 }
 
 fn norm_angle(mut a: f32) -> f32 {
@@ -151,7 +155,7 @@ fn norm_angle(mut a: f32) -> f32 {
 }
 
 impl Pendulum {
-    fn new(pivot: Vec2, cfg: meta::PhysicsVertex) -> Self {
+    fn new(pivot: Vec2, cfg: meta::PhysicsVertex, id: String, index: usize) -> Self {
         Self {
             pivot,
             g_angle: 0.,
@@ -159,6 +163,8 @@ impl Pendulum {
             velocity: 0.,
             bob: pivot + Vec2::new(0., cfg.radius),
             cfg,
+            id,
+            index,
         }
     }
 
@@ -210,6 +216,14 @@ impl Pendulum {
             self.g_angle = g_angle;
         }
 
+        let steps = self.cfg.delay.max(1.).ceil() as u32;
+        for _ in 0..steps {
+            self.simulate_motion(dt / steps as f32, g_angle, opts);
+        }
+        true
+    }
+
+    fn simulate_motion(&mut self, dt: f32, g_angle: f32, opts: &PhysicsOptions) {
         let cur = Vec2::new(self.angle, self.velocity);
         let k1 = dt * self.deriv(cur, g_angle, opts);
         let k2 = dt * self.deriv(cur + 0.5 * k1, g_angle, opts);
@@ -217,10 +231,21 @@ impl Pendulum {
         let k4 = dt * self.deriv(cur + k3, g_angle, opts);
         let next = cur + (k1 + 2. * k2 + 2. * k3 + k4) / 6.;
 
-        self.angle = norm_angle(next.x);
-        self.velocity = next.y;
+        let next_angle = norm_angle(next.x);
+        if self.angle.is_finite() && !next_angle.is_finite()
+            || self.velocity.is_finite() && !next.y.is_finite()
+        {
+            error!(
+                "Physics error! Pendulum broke: {:?} -> a={} ({}), v={}",
+                self, next.x, next_angle, next.y,
+            );
+            self.angle = g_angle;
+            self.velocity = 0.;
+        } else {
+            self.angle = next_angle;
+            self.velocity = next.y;
+        }
         self.bob = Vec2::from_angle(self.angle).flip() * self.cfg.radius + self.pivot;
-        true
     }
 }
 
@@ -299,10 +324,17 @@ impl System {
             if output.reflect {
                 value = -value;
             }
-            let a = output.weight / 100.;
             value = value.clamp(desc.min, desc.max);
+            if !value.is_finite() {
+                value = desc.default;
+            }
             if let Some(v) = pose.get_mut_flattened(key) {
-                *v = Value::opaque(value * a + v.value * (1. - a));
+                if output.weight != 100. {
+                    let a = output.weight / 100.;
+                    *v = Value::opaque(value * a + v.value * (1. - a));
+                } else {
+                    *v = Value::opaque(value);
+                }
             }
         }
     }
@@ -355,8 +387,13 @@ impl PhysicsEngine {
         for (i, mut setting) in config.physics_settings.into_iter().enumerate() {
             let mut pendulums = Vec::new();
             let mut pivot = Vec2::ZERO;
-            for vertex in setting.vertices.iter().skip(1) {
-                pendulums.push(Pendulum::new(pivot, vertex.clone()));
+            for (i, vertex) in setting.vertices.iter().skip(1).enumerate() {
+                pendulums.push(Pendulum::new(
+                    pivot,
+                    vertex.clone(),
+                    setting.id.to_string(),
+                    i + 1,
+                ));
                 pivot.y += vertex.radius;
             }
 
