@@ -30,6 +30,36 @@ const FALLBACK_FONT: &[u8] = include_bytes!("../assets/DroidSansFallback.ttf");
 
 const PARAM_BREATH: pose::Key<'static> = pose::Key::param("ParamBreath");
 
+#[derive(Clone)]
+struct ModelView {
+    top_left_px: Vec2,
+    dims_px: Vec2,
+    transform: Affine2,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Default)]
+enum CaptureAlphaMode {
+    #[default]
+    StraightClamp,
+    StraightExtend,
+    Premultiplied,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Default)]
+enum CaptureFrameMode {
+    #[default]
+    Viewport1X,
+    Viewport2X,
+    WholeModel,
+}
+
+struct CaptureRequest {
+    view: ModelView,
+    bg_color: egui::Color32,
+    alpha_mode: CaptureAlphaMode,
+    clipboard_image: Option<Arc<Mutex<Option<egui::ColorImage>>>>,
+}
+
 #[derive(Default)]
 pub struct AppState {
     transform: Affine2,
@@ -43,6 +73,10 @@ pub struct AppState {
     breath_enabled: bool,
     breath_time: f64,
     bg_color: egui::Color32,
+    alpha_mode: CaptureAlphaMode,
+    frame_mode: CaptureFrameMode,
+    request_capture: Option<bool>,
+    clipboard_image: Option<Arc<Mutex<Option<egui::ColorImage>>>>,
 }
 
 type ModelRenderer = ayagami_render::ModelRenderer<file::ParsedModel, Arc<file::ParsedModel>>;
@@ -234,7 +268,7 @@ impl AyagamiTestApp {
         app
     }
 
-    fn model_view(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
+    fn model_view(&mut self, ui: &mut egui::Ui, rect: egui::Rect, frame: &mut eframe::Frame) {
         let response = ui.interact(rect, egui::Id::NULL, egui::Sense::drag());
 
         // Apply drag (2x factor because viewport is -1..1)
@@ -260,10 +294,10 @@ impl AyagamiTestApp {
                 }
             });
         }
-        self.draw_model(ui, rect);
+        self.draw_model(ui, rect, frame);
     }
 
-    fn draw_model(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
+    fn draw_model(&mut self, ui: &mut egui::Ui, rect: egui::Rect, frame: &mut eframe::Frame) {
         // Figure out our viewport in pixels, to get 1:1 mask rendering
         let pixels_per_point = ui.pixels_per_point();
         let left_px = (pixels_per_point * rect.min.x).round();
@@ -282,14 +316,56 @@ impl AyagamiTestApp {
 
         let transform = self.state.transform * Affine2::from_scale(1.2 * scale);
 
-        let cb = egui_wgpu::Callback::new_paint_callback(
-            rect,
-            ModelView {
-                top_left_px,
-                dims_px,
-                transform,
-            },
-        );
+        let view = ModelView {
+            top_left_px,
+            dims_px,
+            transform,
+        };
+
+        if let Some(to_clipboard) = self.state.request_capture.take() {
+            let view = match self.state.frame_mode {
+                CaptureFrameMode::Viewport1X => ModelView {
+                    top_left_px: Vec2::ZERO,
+                    ..view
+                },
+                CaptureFrameMode::Viewport2X => ModelView {
+                    top_left_px: Vec2::ZERO,
+                    dims_px: dims_px * Vec2::splat(2.),
+                    ..view
+                },
+                CaptureFrameMode::WholeModel => {
+                    let m = self.model.as_ref().unwrap();
+                    let dim = m.canvas_properties().dimensions;
+                    let center = m.canvas_properties().center;
+                    let scale = m.canvas_properties().scale;
+                    let transform = Affine2::from_translation(-Vec2::ONE)
+                        * Affine2::from_scale(Vec2::new(2., 2.) / dim)
+                        * Affine2::from_translation(center)
+                        * Affine2::from_scale(Vec2::splat(scale));
+                    ModelView {
+                        top_left_px: Vec2::ZERO,
+                        dims_px: dim,
+                        transform,
+                    }
+                }
+            };
+
+            if to_clipboard {
+                self.state.clipboard_image = Some(Default::default());
+            }
+
+            let cap = CaptureRequest {
+                view,
+                bg_color: self.state.bg_color,
+                alpha_mode: self.state.alpha_mode,
+                clipboard_image: self.state.clipboard_image.clone(),
+            };
+
+            let rs = frame.wgpu_render_state().unwrap();
+            cap.capture(&mut self.renderer.lock().unwrap(), &rs.device, &rs.queue);
+        }
+
+        let cb = egui_wgpu::Callback::new_paint_callback(rect, view);
 
         ui.painter().add(cb);
     }
@@ -484,10 +560,42 @@ impl AyagamiTestApp {
     }
 
     fn right_panel(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        ui.heading("Canvas");
+        ui.heading("Screenshot");
         ui.horizontal(|ui| {
             ui.label("Background color");
             ui.color_edit_button_srgba(&mut self.state.bg_color);
+        });
+        let a = &mut self.state.alpha_mode;
+        ui.label("Emissive pixel mode:");
+        egui::ComboBox::from_id_salt("ALPHA_MODE")
+            .selected_text(match *a {
+                CaptureAlphaMode::StraightClamp => "Transparent",
+                CaptureAlphaMode::StraightExtend => "Opaque",
+                CaptureAlphaMode::Premultiplied => "Premultiplied",
+            })
+            .show_ui(ui, |ui| {
+                ui.selectable_value(a, CaptureAlphaMode::StraightClamp, "Transparent");
+                ui.selectable_value(a, CaptureAlphaMode::StraightExtend, "Opaque");
+                ui.selectable_value(a, CaptureAlphaMode::Premultiplied, "Premultiplied");
+            });
+        ui.horizontal(|ui| {
+            let m = &mut self.state.frame_mode;
+            ui.label("Resolution:");
+            ui.radio_value(m, CaptureFrameMode::Viewport1X, "1×")
+                .on_hover_text("Visible area (display resolution)");
+            ui.radio_value(m, CaptureFrameMode::Viewport2X, "2×")
+                .on_hover_text("Visible area (double resolution)");
+            ui.radio_value(m, CaptureFrameMode::WholeModel, "Full")
+                .on_hover_text("Entire model (original resolution");
+        });
+
+        ui.horizontal(|ui| {
+            if ui.button("📋 Copy").clicked() {
+                self.state.request_capture = Some(true);
+            }
+            if ui.button("💾 Save").clicked() {
+                self.state.request_capture = Some(false);
+            }
         });
 
         if let Some(physics) = self.state.physics.as_ref() {
@@ -566,6 +674,14 @@ impl eframe::App for AyagamiTestApp {
             physics.update(&mut self.state.physics_pose, stable_dt);
             ctx.request_repaint();
         }
+
+        if let Some(slot) = self.state.clipboard_image.as_ref() {
+            let inner = slot.lock().unwrap().take();
+            if let Some(img) = inner {
+                ctx.copy_image(img);
+                self.state.clipboard_image = None;
+            }
+        }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
@@ -633,20 +749,20 @@ impl eframe::App for AyagamiTestApp {
             }
         });
 
-        let mut frame = egui::Frame::canvas(ui.style());
-        frame = frame.fill(frame.fill.blend(self.state.bg_color));
+        let mut center_frame = egui::Frame::canvas(ui.style());
+        center_frame = center_frame.fill(center_frame.fill.blend(self.state.bg_color));
 
         if ui.input(|inp| !inp.raw.hovered_files.is_empty()) {
-            frame = frame.fill(Color32::LIGHT_BLUE);
+            center_frame = center_frame.fill(Color32::LIGHT_BLUE);
         }
 
-        let panel = egui::CentralPanel::default().frame(frame);
+        let panel = egui::CentralPanel::default().frame(center_frame);
 
         panel.show(ui, |ui| {
             let rect = ui.available_rect_before_wrap();
 
             if self.renderer.lock().unwrap().is_loaded() {
-                self.model_view(ui, rect);
+                self.model_view(ui, rect, frame);
             } else {
                 let style = egui::Style::default();
                 let mut job = egui::text::LayoutJob::default();
@@ -675,13 +791,148 @@ impl eframe::App for AyagamiTestApp {
 
             ui.take_available_space();
         });
+
+        if self.state.request_capture.is_some() {
+            ui.ctx().request_repaint();
+        }
     }
 }
 
-struct ModelView {
-    top_left_px: Vec2,
-    dims_px: Vec2,
-    transform: Affine2,
+impl CaptureRequest {
+    #[cfg(target_arch = "wasm32")]
+    fn save_png(buf: Vec<u8>, filename: &str) {
+        let filename = filename.to_string();
+        wasm_bindgen_futures::spawn_local(async move {
+            use eframe::wasm_bindgen::JsCast as _;
+
+            let document = web_sys::window()
+                .expect("No window")
+                .document()
+                .expect("No document");
+
+            let a = document
+                .create_element("a")
+                .unwrap()
+                .dyn_into::<web_sys::HtmlAnchorElement>()
+                .unwrap();
+
+            let bytes = web_sys::js_sys::Array::new();
+            bytes.push(&web_sys::js_sys::Uint8Array::from(&buf as &[u8]));
+            let blob = web_sys::Blob::new_with_u8_array_sequence(&bytes).unwrap();
+            let url = web_sys::Url::create_object_url_with_blob(&blob).unwrap();
+
+            let body = document.body().unwrap();
+
+            a.set_href(&url);
+            a.set_download(&filename);
+            body.append_with_node_1(&a).unwrap();
+            a.click();
+            a.remove();
+            web_sys::Url::revoke_object_url(&url).unwrap();
+        });
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn save_png(buf: Vec<u8>, filename: &str) {
+        let file = rfd::FileDialog::new()
+            .set_file_name(filename)
+            .add_filter("PNG Image", &["png"])
+            .save_file();
+        if let Some(path) = file
+            && let Ok(mut fd) = File::create(path)
+        {
+            use std::io::Write;
+            fd.write_all(&buf).unwrap();
+        }
+    }
+
+    fn capture(&self, renderer: &mut ModelRenderer, device: &wgpu::Device, queue: &wgpu::Queue) {
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Model screenshot encoder"),
+        });
+
+        let mut texture = ayagami_render::texture::Texture::new(
+            device,
+            self.view.dims_px.as_uvec2(),
+            wgpu::TextureFormat::Rgba8Unorm,
+            Some(1),
+            Some("screenshot texture"),
+        );
+
+        let opts = RenderOptions {
+            transform: self.view.transform,
+            mask_dimensions: self.view.dims_px.as_uvec2(),
+            // XXX Probably want linear, but only once the UI rendering is linear too.
+            colorspace: RenderColorspace::SRgb,
+        };
+
+        renderer.prepare(&mut encoder, &opts);
+        let bg = self.bg_color.to_normalized_gamma_f32();
+
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("screenshot renderpass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &texture.view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: bg[0] as f64,
+                            g: bg[1] as f64,
+                            b: bg[2] as f64,
+                            a: bg[3] as f64,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+                multiview_mask: None,
+            });
+
+            renderer.render(&mut render_pass, texture.texture.format());
+        }
+
+        queue.submit([encoder.finish()]);
+
+        if self.alpha_mode != CaptureAlphaMode::Premultiplied {
+            let manager = ayagami_render::texture::TextureManager::new(device);
+            texture = manager.unpremultiply(
+                device,
+                queue,
+                &texture,
+                self.alpha_mode == CaptureAlphaMode::StraightClamp,
+            );
+        }
+
+        if let Some(slot) = self.clipboard_image.clone() {
+            let width = texture.texture.width();
+            let height = texture.texture.height();
+            texture.download(device, queue, move |buf, bpr| {
+                // This is a LIE: egui stores images premultiplied, but erroneously sends them to the
+                // clipboard as-is, where they are (usually) interpreted as straight alpha.
+                let img = egui::ColorImage::from_rgba_premultiplied(
+                    [bpr as usize / 4, height as usize],
+                    &buf,
+                )
+                .region_by_pixels([0, 0], [width as usize, height as usize]);
+                *slot.lock().unwrap() = Some(img);
+            });
+        } else {
+            texture.download_to_image(device, queue, move |img| {
+                let mut buf = Vec::new();
+                let writer = std::io::Cursor::new(&mut buf);
+                let encoder = image::codecs::png::PngEncoder::new(writer);
+                if img.write_with_encoder(encoder).is_ok() {
+                    let dt = chrono::Local::now().format("%Y%m%d_%H%M%S");
+                    let filename = format!("ayagami_screenshot_{}.png", dt);
+                    Self::save_png(buf, &filename);
+                }
+            });
+        }
+    }
 }
 
 impl egui_wgpu::CallbackTrait for ModelView {

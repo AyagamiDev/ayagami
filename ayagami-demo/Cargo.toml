@@ -7,6 +7,7 @@ edition = "2024"
 anyhow = "1.0.103"
 ayagami = { path = "../ayagami" }
 ayagami-render = { path = "../ayagami-render" }
+chrono = "0.4.45"
 eframe = "0.35.0"
 egui_logger = "0.11.0"
 git-version = "0.3.9"
@@ -23,12 +24,18 @@ zip = { version = "8.6.0", default-features = false, features = [
     "time",
 ]}
 
+[dependencies.image]
+version = "0.25"
+default-features = false
+features = ["png"]
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 env_logger = "0.11.8"
+rfd = "0.17.2"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4.50"
-web-sys = "0.3.70"
+web-sys = { version = "0.3.70", features = ["HtmlAnchorElement"] }
 wgpu = { version = "29.0", features = ["webgl"]}
 wasm-bindgen = "0.2"
 
