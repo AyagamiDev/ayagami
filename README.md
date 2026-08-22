@@ -42,7 +42,7 @@ The code is messy; I'm releasing this early to get feedback on the API and start
 ### TODO
 
 * [ ] Document MOC3 file format
-* [ ] Screenshot tool in demo poser app
+* [x] Screenshot tool in demo poser app
 * [x] Physics engine
 * [ ] Expression file support
 * [ ] Pose file (part linking?) support
