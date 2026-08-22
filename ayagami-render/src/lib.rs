@@ -1,3 +1,3 @@
 mod renderer;
 pub use renderer::*;
-mod texture;
+pub mod texture;

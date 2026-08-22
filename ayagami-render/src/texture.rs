@@ -5,6 +5,7 @@
 
 use crate::renderer::RendererError;
 use anyhow::*;
+use glam::UVec2;
 use image::{GenericImageView, ImageReader};
 use log::info;
 use std::{io::Cursor, iter};
@@ -16,6 +17,50 @@ pub struct Texture {
 }
 
 impl Texture {
+    pub fn new(
+        device: &wgpu::Device,
+        dimensions: UVec2,
+        format: wgpu::TextureFormat,
+        mip_level_count: Option<u32>,
+        label: Option<&str>,
+    ) -> Self {
+        let mip_level_count = mip_level_count.unwrap_or(dimensions.x.min(dimensions.y).ilog2() + 1);
+        let size = wgpu::Extent3d {
+            width: dimensions.x,
+            height: dimensions.y,
+            depth_or_array_layers: 1,
+        };
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label,
+            size,
+            mip_level_count,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
+            ..Default::default()
+        });
+
+        Self {
+            texture,
+            view,
+            sampler,
+        }
+    }
+
     pub fn from_bytes(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -72,64 +117,116 @@ impl Texture {
         let rgba = img.to_rgba8();
 
         info!("{:?}: Loading into GPU", label);
-        let dimensions = img.dimensions();
+        let (width, height) = img.dimensions();
+        let dimensions = UVec2::new(width, height);
 
-        let mip_level_count = img.width().min(img.height()).ilog2() + 1;
-
-        let size = wgpu::Extent3d {
-            width: dimensions.0,
-            height: dimensions.1,
-            depth_or_array_layers: 1,
-        };
-        let format = wgpu::TextureFormat::Rgba8UnormSrgb;
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
+        let tex = Self::new(
+            device,
+            dimensions,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+            None,
             label,
-            size,
-            mip_level_count,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_SRC
-                | wgpu::TextureUsages::COPY_DST
-                | wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        });
+        );
 
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 aspect: wgpu::TextureAspect::All,
-                texture: &texture,
+                texture: &tex.texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
             },
             &rgba,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(4 * dimensions.0),
-                rows_per_image: Some(dimensions.1),
+                bytes_per_row: Some(4 * dimensions.x),
+                rows_per_image: Some(dimensions.y),
             },
-            size,
+            tex.texture.size(),
         );
-
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::MipmapFilterMode::Linear,
-            ..Default::default()
-        });
 
         info!("{:?}: Loaded", label);
 
-        Ok(Self {
-            texture,
-            view,
-            sampler,
-        })
+        Ok(tex)
+    }
+
+    pub fn download(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        callback: impl FnOnce(wgpu::util::DownloadBuffer, u32) + Send + 'static,
+    ) {
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Texture copy encoder"),
+        });
+
+        let bpr = (self.texture.width() * 4).next_multiple_of(256);
+
+        let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            size: bpr as u64 * self.texture.height() as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            label: None,
+            mapped_at_creation: false,
+        });
+
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                aspect: wgpu::TextureAspect::All,
+                texture: &self.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &output_buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(bpr),
+                    rows_per_image: None,
+                },
+            },
+            self.texture.size(),
+        );
+        queue.submit([encoder.finish()]);
+
+        wgpu::util::DownloadBuffer::read_buffer(
+            device,
+            queue,
+            &output_buffer.slice(..),
+            move |buf| {
+                callback(buf.unwrap(), bpr);
+            },
+        );
+    }
+
+    pub fn download_to_image(
+        self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        callback: impl FnOnce(image::DynamicImage) + Send + 'static,
+    ) {
+        let format = self.texture.format();
+        let width = self.texture.width();
+        let height = self.texture.height();
+        self.download(device, queue, move |buf, bpr| {
+            let bytes = buf.to_vec();
+
+            let img = match format {
+                wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Rgba8UnormSrgb => {
+                    image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(bpr / 4, height, bytes)
+                        .unwrap()
+                }
+
+                wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb => {
+                    image::ImageBuffer::<image::Rgba<u8>, _>::from_raw_bgra(bpr / 4, height, bytes)
+                        .unwrap()
+                }
+                _ => panic!("Unsupported texture format {:?}", format),
+            };
+
+            let img: image::DynamicImage = img.into();
+
+            let img = img.crop_imm(0, 0, width, height);
+            callback(img);
+        });
     }
 }
 
@@ -149,7 +246,7 @@ impl TextureManager {
 
     pub fn premultiply(&self, device: &wgpu::Device, queue: &wgpu::Queue, texture: &Texture) {
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("blit"),
+            label: Some("premultiply"),
             layout: None,
             vertex: wgpu::VertexState {
                 module: &self.shader,
@@ -225,6 +322,96 @@ impl TextureManager {
             rpass.draw(0..4, 0..1);
         }
         queue.submit(iter::once(encoder.finish()));
+    }
+
+    pub fn unpremultiply(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        texture: &Texture,
+        clamp: bool,
+    ) -> Texture {
+        let dim = UVec2::new(texture.texture.width(), texture.texture.height());
+        let dst = Texture::new(device, dim, texture.texture.format(), Some(1), None);
+
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("unpremultiply"),
+            layout: None,
+            vertex: wgpu::VertexState {
+                module: &self.shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &self.shader,
+                entry_point: if clamp {
+                    Some("fs_unpremult_clamp")
+                } else {
+                    Some("fs_unpremult_ext")
+                },
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: texture.texture.format(),
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+
+        let bind_group_layout = pipeline.get_bind_group_layout(0);
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&texture.sampler),
+                },
+            ],
+            label: None,
+        });
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Unpremultiply Encoder"),
+        });
+
+        {
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &dst.view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+                multiview_mask: None,
+            });
+            rpass.set_pipeline(&pipeline);
+            rpass.set_bind_group(0, &bind_group, &[]);
+            rpass.draw(0..4, 0..1);
+        }
+        queue.submit(iter::once(encoder.finish()));
+
+        dst
     }
 
     pub fn gen_mips(&self, device: &wgpu::Device, queue: &wgpu::Queue, texture: &Texture) {
