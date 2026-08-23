@@ -1004,7 +1004,7 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
 
                 let am_data = md.artmesh_data.get(&artmesh.uid()).unwrap();
                 let tex = artmesh.texture();
-                if false {
+                if artmesh.culling() {
                     render_pass.set_pipeline(&self.stat.mask_pipeline_cull);
                 } else {
                     render_pass.set_pipeline(&self.stat.mask_pipeline_nocull);
