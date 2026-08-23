@@ -34,7 +34,7 @@ struct RenderTexture {
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 struct PipelineMode {
     surface_format: wgpu::TextureFormat,
-    blend_mode: BlendMode,
+    blend_config: BlendConfig,
     cull: bool,
     mask: bool,
     blit: bool,
@@ -172,6 +172,8 @@ struct RendererStatic {
     shader: wgpu::ShaderModule,
     pipeline_layout: wgpu::PipelineLayout,
     mask_pipeline_layout: wgpu::PipelineLayout,
+    adv_pipeline_layout: wgpu::PipelineLayout,
+    adv_mask_pipeline_layout: wgpu::PipelineLayout,
     mask_sampler: wgpu::Sampler,
     mask_pipeline_nocull: wgpu::RenderPipeline,
     mask_pipeline_cull: wgpu::RenderPipeline,
@@ -190,9 +192,11 @@ impl RendererCache {
     ) -> &wgpu::RenderPipeline {
         self.render_pipelines.entry(mode).or_insert_with(|| {
             // Verified against VTube Studio behavior
-            let blend = match mode.blend_mode {
-                BlendMode::Normal => wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING,
-                BlendMode::Add => wgpu::BlendState {
+            let blend = match (mode.blend_config.color, mode.blend_config.alpha) {
+                (ColorBlendMode::Normal, AlphaBlendMode::Over) => {
+                    wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING
+                }
+                (ColorBlendMode::PremultAdd, _) => wgpu::BlendState {
                     color: wgpu::BlendComponent {
                         src_factor: wgpu::BlendFactor::One,
                         dst_factor: wgpu::BlendFactor::One,
@@ -204,7 +208,7 @@ impl RendererCache {
                         operation: wgpu::BlendOperation::Add,
                     },
                 },
-                BlendMode::Multiply => wgpu::BlendState {
+                (ColorBlendMode::PremultMultiply, _) => wgpu::BlendState {
                     color: wgpu::BlendComponent {
                         src_factor: wgpu::BlendFactor::Dst,
                         dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
@@ -216,18 +220,28 @@ impl RendererCache {
                         operation: wgpu::BlendOperation::Add,
                     },
                 },
+                _ => wgpu::BlendState::REPLACE,
             };
 
-            let write_mask = match mode.blend_mode {
-                BlendMode::Normal => wgpu::ColorWrites::ALL,
-                BlendMode::Add => wgpu::ColorWrites::COLOR,
-                BlendMode::Multiply => wgpu::ColorWrites::COLOR,
+            let write_mask = match mode.blend_config.color {
+                ColorBlendMode::PremultAdd | ColorBlendMode::PremultMultiply => {
+                    wgpu::ColorWrites::COLOR
+                }
+                _ => wgpu::ColorWrites::ALL,
             };
 
-            let fs_entry = if mode.mask {
-                "fs_normal_mask"
-            } else {
-                "fs_normal"
+            let fs_entry = match (mode.blend_config.is_advanced(), mode.mask) {
+                (false, false) => "fs_normal",
+                (false, true) => "fs_normal_mask",
+                (true, false) => "fs_advanced",
+                (true, true) => "fs_advanced_mask",
+            };
+
+            let pipeline_layout = match (mode.blend_config.is_advanced(), mode.mask) {
+                (false, false) => &stat.pipeline_layout,
+                (false, true) => &stat.mask_pipeline_layout,
+                (true, false) => &stat.adv_pipeline_layout,
+                (true, true) => &stat.adv_mask_pipeline_layout,
             };
 
             let vertex = if mode.blit {
@@ -246,14 +260,12 @@ impl RendererCache {
                 }
             };
 
+            let label = format!("Ayagami: {:?}", mode);
+
             stat.device
                 .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                    label: Some("Render Pipeline"),
-                    layout: Some(if mode.mask {
-                        &stat.mask_pipeline_layout
-                    } else {
-                        &stat.pipeline_layout
-                    }),
+                    label: Some(&label),
+                    layout: Some(pipeline_layout),
                     vertex,
                     fragment: Some(wgpu::FragmentState {
                         module: &stat.shader,
@@ -307,6 +319,7 @@ pub struct ModelRenderer<T: Model, R: AsRef<T>> {
     cache: RefCell<RendererCache>,
     offscreen_top: Vec<BufferTexture>,
     buffer_pool: Vec<BufferTexture>,
+    shadow_fb: Option<BufferTexture>,
     mask_dimensions: UVec2,
     transform: Affine2,
 }
@@ -355,7 +368,9 @@ struct ArtMeshUniform {
     screen_color: Vec3,
     mask_invert: u32,
     linear_to_srgb: u32,
-    _pad: [u32; 3],
+    color_blend: u32,
+    alpha_blend: u32,
+    _pad: u32,
 }
 
 const ARTMESH_UNIFORM_STRIDE: NonZeroUsize =
@@ -465,6 +480,29 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
                 label: Some("mask_bind_group_layout"),
             });
 
+        let fb_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+                label: Some("fb_bind_group_layout"),
+            });
+
         let uniform_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
@@ -516,6 +554,27 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
             ],
             immediate_size: 0,
         });
+        let adv_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Render Pipeline Layout"),
+            bind_group_layouts: &[
+                Some(&uniform_bind_group_layout),
+                Some(&texture_bind_group_layout),
+                None,
+                Some(&fb_bind_group_layout),
+            ],
+            immediate_size: 0,
+        });
+        let adv_mask_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout (Masked)"),
+                bind_group_layouts: &[
+                    Some(&uniform_bind_group_layout),
+                    Some(&texture_bind_group_layout),
+                    Some(&mask_bind_group_layout),
+                    Some(&fb_bind_group_layout),
+                ],
+                immediate_size: 0,
+            });
 
         let mask_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::Repeat,
@@ -548,6 +607,8 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
                 uniform_bind_group_layout,
                 pipeline_layout,
                 mask_pipeline_layout,
+                adv_pipeline_layout,
+                adv_mask_pipeline_layout,
                 mask_sampler,
                 mask_pipeline_nocull,
                 mask_pipeline_cull,
@@ -559,6 +620,7 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
             cache: Default::default(),
             offscreen_top: Default::default(),
             buffer_pool: Default::default(),
+            shadow_fb: None,
             mask_dimensions: Default::default(),
             transform: Affine2::IDENTITY,
         })
@@ -679,7 +741,25 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
     pub fn reload_model(&mut self, model: R) -> Result<()> {
         let m = model.as_ref();
 
-        let driver = Driver::new(m);
+        let mut driver = Driver::new(m);
+        driver.drive(m);
+
+        let mut needs_offscreen = false;
+        for node in driver.draw_nodes(None).unwrap() {
+            if match node {
+                DrawNode::ArtMesh(uid) => {
+                    let artmesh = m.artmeshes().get(*uid).unwrap();
+                    artmesh.blend_config().is_advanced()
+                }
+                DrawNode::OffscreenPart(uid) => {
+                    let part = m.parts().get(*uid).unwrap();
+                    part.blend_config().unwrap().is_advanced()
+                }
+            } {
+                needs_offscreen = true;
+                break;
+            }
+        }
 
         let vertex_buffer = self.stat.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Vertex Buffer"),
@@ -836,7 +916,7 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
             artmesh_data,
             part_data,
             update_queued: Default::default(),
-            needs_offscreen: false,
+            needs_offscreen,
         });
         Ok(())
     }
@@ -886,6 +966,7 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
         if self.mask_dimensions != options.mask_dimensions {
             self.offscreen_top.clear();
             self.buffer_pool.clear();
+            self.shadow_fb = None;
             for (i, cs) in md.clip_sets.iter_mut().enumerate() {
                 debug!(
                     "Create clip set {} texture: {}x{}",
@@ -965,6 +1046,8 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
                 opacity: 1.0,
                 mask_invert: 0,
                 linear_to_srgb: 0,
+                color_blend: ColorBlendMode::Normal as u32,
+                alpha_blend: AlphaBlendMode::Over as u32,
                 ..Default::default()
             }]));
 
@@ -1062,6 +1145,8 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
                     screen_color: state.visual.screen_color,
                     mask_invert: if artmesh.invert_mask() { 1 } else { 0 },
                     linear_to_srgb: if srgb { 1 } else { 0 },
+                    color_blend: artmesh.blend_config().color as u32,
+                    alpha_blend: artmesh.blend_config().alpha as u32,
                     ..Default::default()
                 };
 
@@ -1093,6 +1178,7 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
         // Upload offscreen part uniforms
         for (uid, part_data) in md.part_data.iter() {
             let part = m.parts().get(*uid).unwrap();
+            let blend_config = part.blend_config().unwrap();
             let state = md.driver.part_state(*uid).unwrap();
             let visual = state.visual.unwrap();
 
@@ -1106,6 +1192,8 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
                     screen_color: visual.screen_color,
                     mask_invert: if part.invert_mask().unwrap() { 1 } else { 0 },
                     linear_to_srgb: 0,
+                    color_blend: blend_config.color as u32,
+                    alpha_blend: blend_config.alpha as u32,
                     ..Default::default()
                 };
 
@@ -1277,7 +1365,7 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
         buffer: &BufferTexture,
         part: Option<T::Uid>,
     ) {
-        let offscreen_children = self.render_offscreen_children(encoder, part);
+        let mut offscreen_children = self.render_offscreen_children(encoder, part);
 
         let attachment = wgpu::RenderPassColorAttachment {
             view: &buffer.view,
@@ -1287,6 +1375,14 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
                 store: wgpu::StoreOp::Store,
             },
             depth_slice: None,
+        };
+
+        let attachment_next = wgpu::RenderPassColorAttachment {
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Load,
+                store: wgpu::StoreOp::Store,
+            },
+            ..attachment
         };
 
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1299,15 +1395,68 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
         });
 
         let md = self.model.as_ref().unwrap();
-        let nodes = md.driver.draw_nodes(part).unwrap().to_vec();
+        let mut nodes = md.driver.draw_nodes(part).unwrap().to_vec();
 
-        self.draw_nodes(
-            &mut render_pass,
-            buffer.texture.format(),
-            &nodes,
-            &offscreen_children,
-        );
-        self.buffer_pool.extend(offscreen_children);
+        let mut first = true;
+
+        loop {
+            let (pop_nodes, pop_offscreen) = self.draw_nodes(
+                &mut render_pass,
+                buffer.texture.format(),
+                &nodes[..],
+                &offscreen_children,
+                first,
+            );
+            first = false;
+            nodes.drain(..pop_nodes);
+            self.buffer_pool
+                .extend(offscreen_children.drain(..pop_offscreen));
+
+            if nodes.is_empty() {
+                break;
+            }
+
+            core::mem::drop(render_pass);
+
+            if self.shadow_fb.is_none() {
+                self.shadow_fb = Some(BufferTexture::new(
+                    &self.stat.device,
+                    &self.stat.mask_bind_group_layout,
+                    &self.stat.mask_sampler,
+                    self.mask_dimensions.x,
+                    self.mask_dimensions.y,
+                    wgpu::TextureFormat::Bgra8Unorm,
+                    "shadow_fb",
+                ));
+            }
+            let shadow_fb = self.shadow_fb.as_ref().unwrap();
+            // TODO: Use encoder.clear_texture if available and first && pop_nodes == 0
+            encoder.copy_texture_to_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &buffer.texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::TexelCopyTextureInfo {
+                    texture: &shadow_fb.texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                buffer.texture.size(),
+            );
+
+            render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Off-screen Render Pass (continuation)"),
+                color_attachments: &[Some(attachment_next.clone())],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+                multiview_mask: None,
+            });
+            render_pass.set_bind_group(3, &shadow_fb.bind_group, &[]);
+        }
     }
 
     fn draw_nodes(
@@ -1315,25 +1464,36 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
         render_pass: &mut wgpu::RenderPass<'_>,
         surface_format: wgpu::TextureFormat,
         nodes: &[DrawNode<T::Uid>],
-        mut offscreen_children: &[BufferTexture],
-    ) {
+        offscreen_children: &[BufferTexture],
+        first: bool,
+    ) -> (usize, usize) {
         let md = self.model.as_ref().unwrap();
+        let m = md.model.as_ref();
         render_pass.set_index_buffer(md.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
 
-        for node in nodes.iter() {
-            let visual = match node {
+        let mut child_idx = 0;
+        for (i, node) in nodes.iter().enumerate() {
+            let (visual, blend_config) = match node {
                 DrawNode::ArtMesh(uid) => {
+                    let artmesh = m.artmeshes().get(*uid).unwrap();
+                    let blend_config = artmesh.blend_config();
                     let state = md.driver.artmesh_state(*uid).unwrap();
-                    state.visual.clone()
+                    (state.visual.clone(), blend_config)
                 }
                 DrawNode::OffscreenPart(uid) => {
+                    let part = m.parts().get(*uid).unwrap();
+                    let blend_config = part.blend_config().unwrap();
                     let state = md.driver.part_state(*uid).unwrap();
-                    state.visual.unwrap().clone()
+                    (state.visual.unwrap().clone(), blend_config)
                 }
             };
 
             if visual.opacity == 0. || !visual.visible {
                 continue;
+            }
+
+            if blend_config.is_advanced() && (i > 0 || first) {
+                return (i, child_idx);
             }
 
             match node {
@@ -1345,12 +1505,15 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
                         render_pass,
                         surface_format,
                         Some(*uid),
-                        &offscreen_children[0],
+                        &offscreen_children[child_idx],
                     );
-                    offscreen_children = &offscreen_children[1..];
+                    child_idx += 1;
                 }
             }
         }
+
+        assert!(child_idx == offscreen_children.len());
+        (nodes.len(), child_idx)
     }
 
     fn draw_part(
@@ -1366,7 +1529,7 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
         let mut uniform_offset = 0;
         let mut mode = PipelineMode {
             surface_format,
-            blend_mode: BlendMode::Normal,
+            blend_config: Default::default(),
             cull: false,
             mask: false,
             blit: true,
@@ -1376,11 +1539,7 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
             let m = md.model.as_ref();
             let part = m.parts().get(uid).unwrap();
             let part_data = md.part_data.get(&uid).unwrap();
-            mode.blend_mode = part
-                .blend_config()
-                .unwrap()
-                .simple()
-                .unwrap_or(BlendMode::Normal);
+            mode.blend_config = part.blend_config().unwrap();
             mode.mask = part_data.clip_set.is_some();
             uniform_offset = part_data.uniform_offset;
             clip_set = part_data.clip_set;
@@ -1418,7 +1577,7 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
 
         let mode = PipelineMode {
             surface_format,
-            blend_mode: artmesh.blend_config().simple().unwrap_or(BlendMode::Normal),
+            blend_config: artmesh.blend_config(),
             cull: artmesh.culling(),
             mask: am_data.clip_set.is_some(),
             blit: false,
@@ -1473,7 +1632,14 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
             self.draw_part(render_pass, surface_format, None, &self.offscreen_top[0]);
         } else {
             let nodes = md.driver.draw_nodes(None).unwrap().to_vec();
-            self.draw_nodes(render_pass, surface_format, &nodes, &self.offscreen_top);
+            let (pop_nodes, _) = self.draw_nodes(
+                render_pass,
+                surface_format,
+                &nodes,
+                &self.offscreen_top,
+                true,
+            );
+            assert!(pop_nodes == nodes.len());
         }
 
         if md.update_queued.get() {
