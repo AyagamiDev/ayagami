@@ -197,8 +197,8 @@ impl RendererCache {
                 },
                 BlendMode::Multiply => wgpu::BlendState {
                     color: wgpu::BlendComponent {
-                        src_factor: wgpu::BlendFactor::Zero,
-                        dst_factor: wgpu::BlendFactor::Src,
+                        src_factor: wgpu::BlendFactor::Dst,
+                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
                         operation: wgpu::BlendOperation::Add,
                     },
                     alpha: wgpu::BlendComponent {
@@ -215,13 +215,10 @@ impl RendererCache {
                 BlendMode::Multiply => wgpu::ColorWrites::COLOR,
             };
 
-            let fs_entry = match (mode.blend_mode, mode.mask) {
-                (BlendMode::Normal, false) => "fs_normal",
-                (BlendMode::Add, false) => "fs_normal",
-                (BlendMode::Multiply, false) => "fs_multiply",
-                (BlendMode::Normal, true) => "fs_normal_mask",
-                (BlendMode::Add, true) => "fs_normal_mask",
-                (BlendMode::Multiply, true) => "fs_multiply_mask",
+            let fs_entry = if mode.mask {
+                "fs_normal_mask"
+            } else {
+                "fs_normal"
             };
 
             stat.device

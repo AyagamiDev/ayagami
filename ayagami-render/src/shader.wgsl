@@ -106,31 +106,10 @@ fn fs_normal(in: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 @fragment
-fn fs_multiply(in: VertexOutput) -> @location(0) vec4<f32> {
-    var p = artmesh_color(in.tex_coords);
-    p *= u_artmesh.opacity;
-    p.r += 1 - p.a;
-    p.g += 1 - p.a;
-    p.b += 1 - p.a;
-    return p;
-}
-
-@fragment
 fn fs_normal_mask(in: VertexOutput) -> @location(0) vec4<f32> {
     var p = artmesh_color(in.tex_coords);
     var m = mask_value(in.mask_coords);
     p *= u_artmesh.opacity * m;
-    return p;
-}
-
-@fragment
-fn fs_multiply_mask(in: VertexOutput) -> @location(0) vec4<f32> {
-    var p = artmesh_color(in.tex_coords);
-    var m = mask_value(in.mask_coords);
-    p *= u_artmesh.opacity * m;
-    p.r += 1 - p.a;
-    p.g += 1 - p.a;
-    p.b += 1 - p.a;
     return p;
 }
 
