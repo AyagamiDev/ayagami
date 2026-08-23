@@ -3,6 +3,7 @@ use crate::core::*;
 use crate::{collections::UidCollection, pose};
 use deformer::*;
 use derive_more;
+use glam::BVec2;
 use log::{debug, info, trace, warn};
 use std::{
     cell::Cell,
@@ -655,6 +656,10 @@ impl<T: Model> Driver<T> {
             return Default::default();
         };
 
+        // Flip taken from the first form (keypoint to the left)
+        let flip = BVec2::new(forms[0].flip_x(), forms[0].flip_y());
+        let flip_v = Vec2::select(flip, Vec2::NEG_ONE, Vec2::ONE);
+
         let values: Vec<RotFormVals> = forms.into_iter().map(|f| RotFormVals::new(&*f)).collect();
 
         let form = blend(&values, &weights);
@@ -670,7 +675,7 @@ impl<T: Model> Driver<T> {
 
         let mut st = RotState {
             affine: Affine2::from_scale_angle_translation(
-                Vec2::splat(form.scale),
+                flip_v * form.scale,
                 (form.angle + rot.angle_offset()).to_radians(),
                 form.pos,
             ),
