@@ -4,7 +4,7 @@ use glam::{
 };
 use zerocopy_derive::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
-use crate::core::{ArtMeshForm, RotForm, WarpForm};
+use crate::core::{ArtMeshForm, PartForm, RotForm, WarpForm};
 use zerocopy::{transmute_mut, transmute_ref};
 
 #[derive(Debug, IntoBytes, FromBytes, KnownLayout, Immutable)]
@@ -80,6 +80,16 @@ impl ArtMeshFormVals {
                 opacity: f.opacity(),
                 multiply_color: f.multiply_color().into(),
                 screen_color: f.screen_color().into(),
+            },
+            depth: f.depth(),
+        }
+    }
+    pub(crate) fn from_partform<'a>(f: &impl PartForm<'a>) -> Self {
+        Self {
+            visual: VisualVals {
+                opacity: f.opacity().unwrap(),
+                multiply_color: f.multiply_color().unwrap().into(),
+                screen_color: f.screen_color().unwrap().into(),
             },
             depth: f.depth(),
         }

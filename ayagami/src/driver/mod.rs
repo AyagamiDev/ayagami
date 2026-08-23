@@ -385,6 +385,7 @@ struct PartState {
     visible_artmeshes: bool,
     visible_deformers: bool,
     depth: i32,
+    visual: Option<Visual>,
     user_opacity: f32,
     opacity: f32,
     modified: bool,
@@ -430,6 +431,7 @@ pub struct DrivenArtMesh<'a> {
 #[derive(Default, Debug)]
 pub struct DrivenPart {
     pub updated: bool,
+    pub visual: Option<Visual>,
     pub depth: i32,
     pub opacity: f32,
 }
@@ -953,6 +955,7 @@ impl<T: Model> Driver<T> {
             visible_artmeshes: part.visible_artmeshes(),
             visible_deformers: part.visible_deformers(),
             depth: 0,
+            visual: Default::default(),
             user_opacity,
             opacity: user_opacity,
             modified: false,
@@ -960,19 +963,34 @@ impl<T: Model> Driver<T> {
             updated: false,
         };
 
-        st.depth = if let Some((forms, weights)) = self.get_form_set(
+        if let Some((forms, weights)) = self.get_form_set(
             model,
             part.param_maps(),
             part.forms(),
             part.blend_form_maps(),
         ) {
-            let values: Vec<f32> = forms.into_iter().map(|f| f.depth()).collect();
-            (blend(&values, &weights).clamp(0., 1000.) + DEPTH_FUDGE) as i32
+            if part.offscreen() {
+                let values: Vec<_> = forms
+                    .iter()
+                    .map(|f| ArtMeshFormVals::from_partform(&**f))
+                    .collect();
+                let form = blend(&values, &weights);
+                st.depth = (form.depth.clamp(0., 1000.) + DEPTH_FUDGE) as i32;
+                let mut visual: Visual = form.visual.into();
+                visual.visible = part.visible_artmeshes();
+                st.visual = Some(visual);
+            } else {
+                let values: Vec<f32> = forms.into_iter().map(|f| f.depth()).collect();
+                st.depth = (blend(&values, &weights).clamp(0., 1000.) + DEPTH_FUDGE) as i32
+            }
         } else {
             // Out of range, depth = 0.
             info!("Part #{} {}: Out of range", part.uid(), part.id());
-            0
-        };
+            st.depth = 0;
+            if part.offscreen() {
+                st.visual = Some(Default::default());
+            }
+        }
 
         if let Some(parent) = part.parent() {
             self.part[parent.uid()].apply(&mut st);
@@ -1234,7 +1252,7 @@ impl<T: Model> Driver<T> {
             blend_arrays(&arrays, &mut vertices, &weights);
 
             let mut visual: Visual = form.visual.into();
-            visual.visible = artmesh.visible() && visible;
+            visual.visible = artmesh.visible();
 
             if let Some(uid) = artmesh.deformer().map(|d| d.uid()) {
                 let pst = &self.deformer[uid];
@@ -1401,6 +1419,7 @@ impl<T: Model> Driver<T> {
         }
         Some(DrivenPart {
             updated: st.updated,
+            visual: st.visual.clone(),
             depth: st.depth,
             opacity: st.opacity,
         })
