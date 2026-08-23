@@ -889,7 +889,10 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
             am_data.clip_use_count = 0;
         }
 
-        for uid in md.driver.sorted_artmeshes() {
+        for node in md.driver.draw_nodes(None).unwrap() {
+            let DrawNode::ArtMesh(uid) = node else {
+                continue;
+            };
             let state = md.driver.artmesh_state(*uid).unwrap();
             if state.visual.opacity != 0. && state.visual.visible {
                 let am_data = md.artmesh_data.get(uid).unwrap();
@@ -1052,7 +1055,10 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
 
         render_pass.set_index_buffer(md.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
 
-        for uid in md.driver.sorted_artmeshes() {
+        for node in md.driver.draw_nodes(None).unwrap() {
+            let DrawNode::ArtMesh(uid) = node else {
+                continue;
+            };
             let artmesh = m.artmeshes().get(*uid).unwrap();
             let state = md.driver.artmesh_state(*uid).unwrap();
             if state.visual.opacity == 0. || !state.visual.visible {

@@ -414,7 +414,8 @@ pub struct Driver<T: Model> {
     blend_limit: ItemState<T, BlendLimitState>,
     deformer: ItemState<T, DeformerState>,
     artmesh: ItemState<T, ArtMeshState>,
-    sorted_artmeshes: Vec<T::Uid>,
+    part_drawnodes: HashMap<T::Uid, Vec<DrawNode<T::Uid>>>,
+    root_drawnodes: Vec<DrawNode<T::Uid>>,
     part: ItemState<T, PartState>,
     order_changed: bool,
     perftest_mode: bool,
@@ -442,6 +443,12 @@ pub enum DriverError {
     ParameterNotFound(String),
     #[error("Part {0} does not exist")]
     PartNotFound(String),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum DrawNode<T> {
+    ArtMesh(T),
+    OffscreenPart(T),
 }
 
 impl<T: Model> Driver<T> {
@@ -488,7 +495,8 @@ impl<T: Model> Driver<T> {
             deformer: Default::default(),
             artmesh: Default::default(),
             part,
-            sorted_artmeshes: Default::default(),
+            part_drawnodes: Default::default(),
+            root_drawnodes: Default::default(),
             order_changed: true,
             perftest_mode: false,
         }
@@ -1370,12 +1378,14 @@ impl<T: Model> Driver<T> {
         }
 
         if self.order_changed {
-            let mut v = Vec::new();
+            let mut m = HashMap::new();
+            let mut r = Vec::new();
             if let Some(dg) = model.root_draw_group() {
-                self.collect_drawgroup(&*dg, &mut v);
+                self.collect_drawgroup(model, &*dg, &mut m, &mut r);
             }
-            self.order_changed = self.sorted_artmeshes != v;
-            self.sorted_artmeshes = v;
+            self.order_changed = self.root_drawnodes != r || self.part_drawnodes != m;
+            self.part_drawnodes = m;
+            self.root_drawnodes = r;
         }
 
         for param in model.params() {
@@ -1386,15 +1396,34 @@ impl<T: Model> Driver<T> {
         }
     }
 
-    fn collect_drawgroup(&self, group: &T::DrawGroup<'_>, v: &mut Vec<T::Uid>) {
+    fn collect_drawgroup(
+        &self,
+        model: &T,
+        group: &T::DrawGroup<'_>,
+        m: &mut HashMap<T::Uid, Vec<DrawNode<T::Uid>>>,
+        n: &mut Vec<DrawNode<T::Uid>>,
+    ) {
         let mut items: Vec<_> = group.items().into_iter().collect();
         items.sort_by_key(|it| match it {
             DrawItem::ArtMesh(am) => self.artmesh[am.uid()].depth as u32,
             DrawItem::Part(part_item) => self.part[part_item.part.uid()].depth as u32,
         });
         items.into_iter().for_each(|it| match it {
-            DrawItem::ArtMesh(am) => v.push(am.uid()),
-            DrawItem::Part(part_item) => self.collect_drawgroup(&*part_item.draw_group, v),
+            DrawItem::ArtMesh(am) => {
+                n.push(DrawNode::ArtMesh(am.uid()));
+            }
+            DrawItem::Part(part_item) => {
+                let uid = part_item.part.uid();
+                let part = model.parts().get(uid).unwrap();
+                if part.offscreen() {
+                    let mut branch = Vec::new();
+                    self.collect_drawgroup(model, &*part_item.draw_group, m, &mut branch);
+                    m.insert(uid, branch);
+                    n.push(DrawNode::OffscreenPart(part_item.part.uid()));
+                } else {
+                    self.collect_drawgroup(model, &*part_item.draw_group, m, n);
+                }
+            }
         });
     }
 
@@ -1429,7 +1458,10 @@ impl<T: Model> Driver<T> {
         self.order_changed
     }
 
-    pub fn sorted_artmeshes(&self) -> &[T::Uid] {
-        &self.sorted_artmeshes
+    pub fn draw_nodes(&self, part_uid: Option<T::Uid>) -> Option<&[DrawNode<T::Uid>]> {
+        match part_uid {
+            Some(uid) => self.part_drawnodes.get(&uid).map(|v| &**v),
+            None => Some(&self.root_drawnodes)
+        }
     }
 }
