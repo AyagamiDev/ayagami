@@ -39,50 +39,39 @@ struct PipelineMode {
     mask: bool,
 }
 
-struct ClipTexture {
-    _texture: wgpu::Texture,
+struct BufferTexture {
+    texture: wgpu::Texture,
     view: wgpu::TextureView,
     bind_group: wgpu::BindGroup,
 }
 
-struct ClipSet<T: Model> {
-    targets: Vec<T::Uid>,
-    dirty: Cell<bool>,
-    update_queued: Cell<bool>,
-    use_count: usize,
-    cur_use_count: usize,
-    texture: Option<ClipTexture>,
-}
-
-impl<T: Model> ClipSet<T> {
-    fn create_texture(
-        &mut self,
+impl BufferTexture {
+    fn new(
         device: &wgpu::Device,
         bind_group_layout: &wgpu::BindGroupLayout,
         sampler: &wgpu::Sampler,
         width: u32,
         height: u32,
-    ) {
-        let label = format!(
-            "Clip texture: Targets={:?}, {} users",
-            self.targets, self.use_count
-        );
-
+        format: wgpu::TextureFormat,
+        label: &str,
+    ) -> Self {
         let size = wgpu::Extent3d {
             width,
             height,
             depth_or_array_layers: 1,
         };
 
-        let format = wgpu::TextureFormat::R8Unorm;
         let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some(&label),
+            label: Some(label),
             size,
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
 
@@ -99,14 +88,49 @@ impl<T: Model> ClipSet<T> {
                     resource: wgpu::BindingResource::Sampler(sampler),
                 },
             ],
-            label: Some(&label),
+            label: Some(label),
         });
 
-        self.texture = Some(ClipTexture {
-            _texture: texture,
+        BufferTexture {
+            texture,
             view,
             bind_group,
-        });
+        }
+    }
+}
+
+struct ClipSet<T: Model> {
+    targets: Vec<T::Uid>,
+    dirty: Cell<bool>,
+    update_queued: Cell<bool>,
+    use_count: usize,
+    cur_use_count: usize,
+    texture: Option<BufferTexture>,
+}
+
+impl<T: Model> ClipSet<T> {
+    fn create_texture(
+        &mut self,
+        device: &wgpu::Device,
+        bind_group_layout: &wgpu::BindGroupLayout,
+        sampler: &wgpu::Sampler,
+        width: u32,
+        height: u32,
+    ) {
+        let label = format!(
+            "Clip texture: Targets={:?}, {} users",
+            self.targets, self.use_count
+        );
+
+        self.texture = Some(BufferTexture::new(
+            device,
+            bind_group_layout,
+            sampler,
+            width,
+            height,
+            wgpu::TextureFormat::R8Unorm,
+            &label,
+        ));
     }
 }
 
