@@ -142,6 +142,11 @@ struct ArtMeshRenderData {
     uniform_offset: usize,
 }
 
+struct PartRenderData {
+    clip_set: Option<usize>,
+    uniform_offset: usize,
+}
+
 struct LoadedModel<T: Model, R: AsRef<T>> {
     model: R,
     driver: Driver<T>,
@@ -153,6 +158,9 @@ struct LoadedModel<T: Model, R: AsRef<T>> {
 
     clip_sets: Vec<ClipSet<T>>,
     artmesh_data: HashMap<T::Uid, ArtMeshRenderData>,
+    part_data: HashMap<T::Uid, PartRenderData>,
+    needs_offscreen: bool,
+    update_queued: Cell<bool>,
 }
 
 struct RendererStatic {
@@ -297,6 +305,8 @@ pub struct ModelRenderer<T: Model, R: AsRef<T>> {
     model: Option<LoadedModel<T, R>>,
     textures: Vec<RenderTexture>,
     cache: RefCell<RendererCache>,
+    offscreen_top: Vec<BufferTexture>,
+    buffer_pool: Vec<BufferTexture>,
     mask_dimensions: UVec2,
     transform: Affine2,
 }
@@ -547,6 +557,8 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
             model: None,
             textures: Vec::new(),
             cache: Default::default(),
+            offscreen_top: Default::default(),
+            buffer_pool: Default::default(),
             mask_dimensions: Default::default(),
             transform: Affine2::IDENTITY,
         })
@@ -735,6 +747,46 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
             uniform_offset += ARTMESH_UNIFORM_STRIDE.get();
         }
 
+        let mut part_data = HashMap::new();
+        for part in m.parts() {
+            if !part.offscreen() {
+                continue;
+            }
+
+            let clips: Vec<_> = part.clips().unwrap().into_iter().map(|c| c.uid()).collect();
+            let clip_set = if clips.is_empty() {
+                None
+            } else {
+                let idx = if !clip_map.contains_key(&clips) {
+                    let i = clip_sets.len();
+                    clip_map.insert(clips.clone(), i);
+                    clip_sets.push(ClipSet {
+                        targets: clips,
+                        use_count: 0,
+                        cur_use_count: 0,
+                        texture: None,
+                        dirty: false.into(),
+                        update_queued: false.into(),
+                    });
+                    i
+                } else {
+                    *clip_map.get(&clips).unwrap()
+                };
+                clip_sets[idx].use_count += 1;
+
+                Some(idx)
+            };
+
+            part_data.insert(
+                part.uid(),
+                PartRenderData {
+                    clip_set,
+                    uniform_offset,
+                },
+            );
+            uniform_offset += ARTMESH_UNIFORM_STRIDE.get();
+        }
+
         let artmesh_buffer = self.stat.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("ArtMesh Uniform Buffer"),
             size: uniform_offset as u64,
@@ -782,6 +834,9 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
             uniform_bind_group,
             clip_sets,
             artmesh_data,
+            part_data,
+            update_queued: Default::default(),
+            needs_offscreen: false,
         });
         Ok(())
     }
@@ -829,6 +884,8 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
         // ==== Have surface dimensions changed? Re-create mask textures
 
         if self.mask_dimensions != options.mask_dimensions {
+            self.offscreen_top.clear();
+            self.buffer_pool.clear();
             for (i, cs) in md.clip_sets.iter_mut().enumerate() {
                 debug!(
                     "Create clip set {} texture: {}x{}",
@@ -875,6 +932,11 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
             if clip_set.update_queued.get() {
                 any_changes = true;
             }
+        }
+
+        // Check if there are offscreen renders pending
+        if md.update_queued.get() {
+            any_changes = true;
         }
 
         // If truly nothing changed and clip masks are up to date, early exit
@@ -931,17 +993,38 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
             am_data.clip_use_count = 0;
         }
 
-        for node in md.driver.draw_nodes(None).unwrap() {
-            let DrawNode::ArtMesh(uid) = node else {
-                continue;
-            };
-            let state = md.driver.artmesh_state(*uid).unwrap();
-            if state.visual.opacity != 0. && state.visual.visible {
-                let am_data = md.artmesh_data.get(uid).unwrap();
-                if let Some(idx) = am_data.clip_set {
-                    md.clip_sets[idx].cur_use_count += 1;
+        let mut part_queue = vec![None];
+        while !part_queue.is_empty() {
+            let mut more_parts = Vec::new();
+
+            for part_uid in part_queue {
+                for node in md.driver.draw_nodes(part_uid).unwrap() {
+                    match node {
+                        DrawNode::OffscreenPart(uid) => {
+                            let state = md.driver.part_state(*uid).unwrap();
+                            let visual = state.visual.unwrap();
+                            if visual.opacity != 0. && visual.visible {
+                                more_parts.push(Some(*uid));
+                                let part_data = md.part_data.get(uid).unwrap();
+                                if let Some(idx) = part_data.clip_set {
+                                    md.clip_sets[idx].cur_use_count += 1;
+                                }
+                            }
+                            continue;
+                        }
+                        DrawNode::ArtMesh(uid) => {
+                            let state = md.driver.artmesh_state(*uid).unwrap();
+                            if state.visual.opacity != 0. && state.visual.visible {
+                                let am_data = md.artmesh_data.get(uid).unwrap();
+                                if let Some(idx) = am_data.clip_set {
+                                    md.clip_sets[idx].cur_use_count += 1;
+                                }
+                            }
+                        }
+                    };
                 }
             }
+            part_queue = more_parts;
         }
 
         for clip_set in md.clip_sets.iter_mut() {
@@ -1005,6 +1088,32 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
             vtx_buf_view.copy_from_slice(bytemuck::cast_slice(state.vertices));
 
             am_data.dirty = false;
+        }
+
+        // Upload offscreen part uniforms
+        for (uid, part_data) in md.part_data.iter() {
+            let part = m.parts().get(*uid).unwrap();
+            let state = md.driver.part_state(*uid).unwrap();
+            let visual = state.visual.unwrap();
+
+            // Upload uniforms, if opacity > 0
+            // Uniforms are uploaded in one operation, so build the whole buffer including
+            // unchanged Parts
+            if visual.opacity != 0. {
+                let artmesh_uniforms = ArtMeshUniform {
+                    opacity: visual.opacity,
+                    multiply_color: visual.multiply_color,
+                    screen_color: visual.screen_color,
+                    mask_invert: if part.invert_mask().unwrap() { 1 } else { 0 },
+                    linear_to_srgb: 0,
+                    ..Default::default()
+                };
+
+                let off = part_data.uniform_offset;
+                am_buf_view
+                    .slice(off..off + core::mem::size_of::<ArtMeshUniform>())
+                    .copy_from_slice(bytemuck::cast_slice(&[artmesh_uniforms]));
+            }
         }
 
         // ==== Render clip masks
@@ -1086,7 +1195,270 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
             clip.update_queued.set(true);
         }
 
-        clips_updated
+        self.buffer_pool.append(&mut self.offscreen_top);
+
+        if md.needs_offscreen {
+            let top_buffer = self.get_offscreen_buffer();
+            self.render_offscreen(encoder, &top_buffer, None);
+            self.offscreen_top = vec![top_buffer];
+            let md = self.model.as_mut().unwrap();
+            md.update_queued.set(true);
+            true
+        } else if !md.part_data.is_empty() {
+            self.offscreen_top = self.render_offscreen_children(encoder, None);
+            assert!(!self.offscreen_top.is_empty());
+            let md = self.model.as_mut().unwrap();
+            md.update_queued.set(true);
+            true
+        } else {
+            clips_updated
+        }
+    }
+
+    fn get_offscreen_buffer(&mut self) -> BufferTexture {
+        self.buffer_pool.pop().unwrap_or_else(|| {
+            BufferTexture::new(
+                &self.stat.device,
+                &self.stat.mask_bind_group_layout,
+                &self.stat.mask_sampler,
+                self.mask_dimensions.x,
+                self.mask_dimensions.y,
+                wgpu::TextureFormat::Bgra8Unorm,
+                "part_buf",
+            )
+        })
+    }
+
+    fn render_offscreen_children(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        part: Option<T::Uid>,
+    ) -> Vec<BufferTexture> {
+        let mut off_parts = Vec::new();
+
+        let md = self.model.as_ref().unwrap();
+        let nodes = md.driver.draw_nodes(part).unwrap().to_vec();
+
+        for node in nodes.iter() {
+            let DrawNode::OffscreenPart(uid) = node else {
+                continue;
+            };
+
+            let md = self.model.as_ref().unwrap();
+            let state = md.driver.part_state(*uid).unwrap();
+            let visual = state.visual.unwrap();
+
+            if visual.opacity == 0. || !visual.visible {
+                continue;
+            }
+
+            let part_buf = self.buffer_pool.pop().unwrap_or_else(|| {
+                BufferTexture::new(
+                    &self.stat.device,
+                    &self.stat.mask_bind_group_layout,
+                    &self.stat.mask_sampler,
+                    self.mask_dimensions.x,
+                    self.mask_dimensions.y,
+                    wgpu::TextureFormat::Bgra8Unorm,
+                    "part_buf",
+                )
+            });
+
+            self.render_offscreen(encoder, &part_buf, Some(*uid));
+            off_parts.push(part_buf);
+        }
+
+        off_parts
+    }
+
+    fn render_offscreen(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        buffer: &BufferTexture,
+        part: Option<T::Uid>,
+    ) {
+        let offscreen_children = self.render_offscreen_children(encoder, part);
+
+        let attachment = wgpu::RenderPassColorAttachment {
+            view: &buffer.view,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                store: wgpu::StoreOp::Store,
+            },
+            depth_slice: None,
+        };
+
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Off-screen Render Pass"),
+            color_attachments: &[Some(attachment)],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+            multiview_mask: None,
+        });
+
+        let md = self.model.as_ref().unwrap();
+        let nodes = md.driver.draw_nodes(part).unwrap().to_vec();
+
+        self.draw_nodes(
+            &mut render_pass,
+            buffer.texture.format(),
+            &nodes,
+            &offscreen_children,
+        );
+        self.buffer_pool.extend(offscreen_children);
+    }
+
+    fn draw_nodes(
+        &self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        surface_format: wgpu::TextureFormat,
+        nodes: &[DrawNode<T::Uid>],
+        mut offscreen_children: &[BufferTexture],
+    ) {
+        let md = self.model.as_ref().unwrap();
+        render_pass.set_index_buffer(md.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+
+        for node in nodes.iter() {
+            let visual = match node {
+                DrawNode::ArtMesh(uid) => {
+                    let state = md.driver.artmesh_state(*uid).unwrap();
+                    state.visual.clone()
+                }
+                DrawNode::OffscreenPart(uid) => {
+                    let state = md.driver.part_state(*uid).unwrap();
+                    state.visual.unwrap().clone()
+                }
+            };
+
+            if visual.opacity == 0. || !visual.visible {
+                continue;
+            }
+
+            match node {
+                DrawNode::ArtMesh(uid) => {
+                    self.draw_artmesh(render_pass, surface_format, *uid);
+                }
+                DrawNode::OffscreenPart(uid) => {
+                    self.draw_part(
+                        render_pass,
+                        surface_format,
+                        Some(*uid),
+                        &offscreen_children[0],
+                    );
+                    offscreen_children = &offscreen_children[1..];
+                }
+            }
+        }
+    }
+
+    fn draw_part(
+        &self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        surface_format: wgpu::TextureFormat,
+        uid: Option<T::Uid>,
+        buffer: &BufferTexture,
+    ) {
+        let md = self.model.as_ref().unwrap();
+
+        let mut clip_set = None;
+        let mut uniform_offset = 0;
+        let mut mode = PipelineMode {
+            surface_format,
+            blend_mode: BlendMode::Normal,
+            cull: false,
+            mask: false,
+            blit: true,
+        };
+
+        if let Some(uid) = uid {
+            let m = md.model.as_ref();
+            let part = m.parts().get(uid).unwrap();
+            let part_data = md.part_data.get(&uid).unwrap();
+            mode.blend_mode = part
+                .blend_config()
+                .unwrap()
+                .simple()
+                .unwrap_or(BlendMode::Normal);
+            mode.mask = part_data.clip_set.is_some();
+            uniform_offset = part_data.uniform_offset;
+            clip_set = part_data.clip_set;
+        }
+
+        let mut cache = self.cache.borrow_mut();
+        let pipeline = cache.render_pipeline(&self.stat, mode);
+        render_pass.set_pipeline(pipeline);
+        render_pass.set_bind_group(0, &md.uniform_bind_group, &[uniform_offset as u32]);
+        render_pass.set_bind_group(1, &buffer.bind_group, &[]);
+
+        if let Some(idx) = clip_set {
+            let clip = &md.clip_sets[idx];
+            let tex = clip.texture.as_ref().unwrap();
+            render_pass.set_bind_group(2, &tex.bind_group, &[]);
+        }
+        render_pass.draw(0..4, 0..1);
+    }
+
+    fn draw_artmesh(
+        &self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        surface_format: wgpu::TextureFormat,
+        uid: T::Uid,
+    ) {
+        let md = self.model.as_ref().unwrap();
+        let m = md.model.as_ref();
+
+        let artmesh = m.artmeshes().get(uid).unwrap();
+        let state = md.driver.artmesh_state(uid).unwrap();
+        if state.visual.opacity == 0. || !state.visual.visible {
+            return;
+        }
+        let am_data = md.artmesh_data.get(&uid).unwrap();
+
+        let mode = PipelineMode {
+            surface_format,
+            blend_mode: artmesh.blend_config().simple().unwrap_or(BlendMode::Normal),
+            cull: artmesh.culling(),
+            mask: am_data.clip_set.is_some(),
+            blit: false,
+        };
+        let mut cache = self.cache.borrow_mut();
+        let pipeline = cache.render_pipeline(&self.stat, mode);
+        render_pass.set_pipeline(pipeline);
+
+        let tex = artmesh.texture();
+
+        render_pass.set_bind_group(0, &md.uniform_bind_group, &[am_data.uniform_offset as u32]);
+        render_pass.set_bind_group(1, &self.textures[tex as usize].bind_group, &[]);
+
+        if let Some(idx) = am_data.clip_set {
+            let clip = &md.clip_sets[idx];
+            let tex = clip.texture.as_ref().unwrap();
+            render_pass.set_bind_group(2, &tex.bind_group, &[]);
+        }
+
+        let texcoord_off = artmesh.texcoord_offset() as u64;
+        render_pass.set_vertex_buffer(0, md.vertex_buffer.slice(8 * texcoord_off..));
+        render_pass.set_vertex_buffer(1, md.texcoord_buffer.slice(8 * texcoord_off..));
+
+        let mut vmin = Vec2::INFINITY;
+        let mut vmax = Vec2::NEG_INFINITY;
+        for v in state.vertices {
+            vmin = vmin.min(*v);
+            vmax = vmax.max(*v);
+        }
+
+        trace!(
+            "Draw ArtMesh {}: {:?} -> {:?} .. {:?} {:?}",
+            artmesh.id(),
+            artmesh.index_range(),
+            vmin,
+            vmax,
+            mode
+        );
+
+        render_pass.draw_indexed(artmesh.index_range(), 0, 0..1);
     }
 
     pub fn render(
@@ -1095,64 +1467,17 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
         surface_format: wgpu::TextureFormat,
     ) {
         let md = self.model.as_ref().unwrap();
-        let m = md.model.as_ref();
 
-        render_pass.set_index_buffer(md.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        if md.needs_offscreen {
+            assert!(self.offscreen_top.len() == 1);
+            self.draw_part(render_pass, surface_format, None, &self.offscreen_top[0]);
+        } else {
+            let nodes = md.driver.draw_nodes(None).unwrap().to_vec();
+            self.draw_nodes(render_pass, surface_format, &nodes, &self.offscreen_top);
+        }
 
-        for node in md.driver.draw_nodes(None).unwrap() {
-            let DrawNode::ArtMesh(uid) = node else {
-                continue;
-            };
-            let artmesh = m.artmeshes().get(*uid).unwrap();
-            let state = md.driver.artmesh_state(*uid).unwrap();
-            if state.visual.opacity == 0. || !state.visual.visible {
-                continue;
-            }
-            let am_data = md.artmesh_data.get(uid).unwrap();
-
-            let mode = PipelineMode {
-                surface_format,
-                blend_mode: artmesh.blend_config().simple().unwrap_or(BlendMode::Normal),
-                cull: artmesh.culling(),
-                mask: am_data.clip_set.is_some(),
-                blit: false,
-            };
-            let mut cache = self.cache.borrow_mut();
-            let pipeline = cache.render_pipeline(&self.stat, mode);
-            render_pass.set_pipeline(pipeline);
-
-            let tex = artmesh.texture();
-
-            render_pass.set_bind_group(0, &md.uniform_bind_group, &[am_data.uniform_offset as u32]);
-            render_pass.set_bind_group(1, &self.textures[tex as usize].bind_group, &[]);
-
-            if let Some(idx) = am_data.clip_set {
-                let clip = &md.clip_sets[idx];
-                let tex = clip.texture.as_ref().unwrap();
-                render_pass.set_bind_group(2, &tex.bind_group, &[]);
-            }
-
-            let texcoord_off = artmesh.texcoord_offset() as u64;
-            render_pass.set_vertex_buffer(0, md.vertex_buffer.slice(8 * texcoord_off..));
-            render_pass.set_vertex_buffer(1, md.texcoord_buffer.slice(8 * texcoord_off..));
-
-            let mut vmin = Vec2::INFINITY;
-            let mut vmax = Vec2::NEG_INFINITY;
-            for v in state.vertices {
-                vmin = vmin.min(*v);
-                vmax = vmax.max(*v);
-            }
-
-            trace!(
-                "Render ArtMesh {}: {:?} -> {:?} .. {:?} {:?}",
-                artmesh.id(),
-                artmesh.index_range(),
-                vmin,
-                vmax,
-                mode
-            );
-
-            render_pass.draw_indexed(artmesh.index_range(), 0, 0..1);
+        if md.update_queued.get() {
+            md.update_queued.set(false);
         }
 
         for clip in md.clip_sets.iter() {
