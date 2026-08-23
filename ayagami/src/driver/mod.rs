@@ -23,6 +23,9 @@ use glam::{
 // that the depth rounds to the correct integer. Value seems to match VTS behavior.
 const DEPTH_FUDGE: f32 = 0.001;
 
+// If a param value is within this distance of a keypoint, round to it.
+const PARAM_FUDGE: f32 = 0.001;
+
 type ItemStateMap<T, V> =
     UidCollection<<T as Model>::UidType, Vec<V>, HashMap<<T as Model>::Uid, V>>;
 struct ItemState<T: Model, V: Default>(ItemStateMap<T, V>);
@@ -1024,7 +1027,7 @@ impl<T: Model> Driver<T> {
                         );
                     } else if kp.len() == 1 {
                         let point = kp.first().unwrap();
-                        if value == *point {
+                        if (value - *point).abs() <= PARAM_FUDGE {
                             mstate.value = Some((0, 0.0))
                         } else {
                             debug!(
@@ -1032,17 +1035,31 @@ impl<T: Model> Driver<T> {
                                 value, tname, uid, kp
                             );
                         }
-                    } else if value < *kp.first().unwrap() || value > *kp.last().unwrap() {
+                    } else if value < (*kp.first().unwrap() - PARAM_FUDGE)
+                        || value > (*kp.last().unwrap() + PARAM_FUDGE)
+                    {
                         debug!(
                             "  Value {} is out of range for {} #{} ({:?})",
                             value, tname, uid, kp
                         );
+                    } else if value <= *kp.first().unwrap() {
+                        mstate.value = Some((0, 0.0));
+                    } else if value >= *kp.last().unwrap() {
+                        mstate.value = Some((kp.len() - 1, 0.0));
                     } else {
                         for (i, (a, b)) in kp.iter().zip(kp[1..].iter()).enumerate() {
                             if value == *b {
-                                mstate.value = Some((i, 1.0));
+                                mstate.value = Some((i + 1, 0.0));
+                                break;
                             } else if value >= *a && value < *b {
-                                mstate.value = Some((i, f32::inverse_lerp(*a, *b, value)));
+                                if (value - PARAM_FUDGE) <= *a {
+                                    mstate.value = Some((i, 0.0));
+                                } else if (value + PARAM_FUDGE) >= *b {
+                                    mstate.value = Some((i + 1, 0.0));
+                                } else {
+                                    mstate.value = Some((i, f32::inverse_lerp(*a, *b, value)));
+                                }
+                                break;
                             }
                         }
                     }
