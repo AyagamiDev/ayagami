@@ -2,7 +2,6 @@
 
 struct GlobalUniform {
     view_mtx: mat4x4<f32>,
-    srgb: u32,
 }
 
 struct ArtMeshUniform {
@@ -11,6 +10,10 @@ struct ArtMeshUniform {
     opacity: f32,
     screen_color: vec3<f32>,
     mask_invert: u32,
+    linear_to_srgb: u32,
+    _pad1: u32,
+    _pad2: u32,
+    _pad3: u32,
 }
 
 @group(0) @binding(0)
@@ -79,7 +82,7 @@ fn gamma_from_linear_rgba(linear_rgba: vec4<f32>) -> vec4<f32> {
 
 fn artmesh_color(tex_coords: vec2<f32>) -> vec4<f32> {
     var p = textureSample(t_model, s_model, tex_coords);
-    if (u_global.srgb != 0) {
+    if (u_artmesh.linear_to_srgb != 0) {
         p = gamma_from_linear_rgba(p);
     }
     var a = p.a;

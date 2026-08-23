@@ -305,11 +305,10 @@ struct TexCoord {
 #[derive(Debug, Default, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct GlobalUniforms {
     view_mtx: [[f32; 4]; 4],
-    srgb: u32,
 }
 
 impl GlobalUniforms {
-    fn new(transform: &Affine2, srgb: bool) -> Self {
+    fn new(transform: &Affine2) -> Self {
         let x = transform.matrix2.x_axis;
         let y = transform.matrix2.y_axis;
         let t = transform.translation;
@@ -321,19 +320,20 @@ impl GlobalUniforms {
         );
         Self {
             view_mtx: mat.to_cols_array_2d(),
-            srgb: if srgb { 1 } else { 0 },
         }
     }
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Debug, Default, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct ArtMeshUniform {
     // Note: Ordered to optimize packing & avoid padding
     multiply_color: Vec3,
     opacity: f32,
     screen_color: Vec3,
     mask_invert: u32,
+    linear_to_srgb: u32,
+    _pad: [u32; 3],
 }
 
 const ARTMESH_UNIFORM_STRIDE: NonZeroUsize =
@@ -809,10 +809,7 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
         // ==== Upload global uniforms (camera)
 
         let srgb = options.colorspace == RenderColorspace::SRgb;
-        let camera = GlobalUniforms::new(
-            &(options.transform * Affine2::from_scale(vec2(1., -1.))),
-            srgb,
-        );
+        let camera = GlobalUniforms::new(&(options.transform * Affine2::from_scale(vec2(1., -1.))));
         self.stat
             .queue
             .write_buffer(&self.global_buffer, 0, bytemuck::cast_slice(&[camera]));
@@ -957,6 +954,8 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
                     multiply_color: state.visual.multiply_color,
                     screen_color: state.visual.screen_color,
                     mask_invert: if artmesh.invert_mask() { 1 } else { 0 },
+                    linear_to_srgb: if srgb { 1 } else { 0 },
+                    ..Default::default()
                 };
 
                 let off = am_data.uniform_offset;
