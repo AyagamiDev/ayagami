@@ -37,6 +37,7 @@ struct PipelineMode {
     blend_mode: BlendMode,
     cull: bool,
     mask: bool,
+    blit: bool,
 }
 
 struct BufferTexture {
@@ -221,6 +222,22 @@ impl RendererCache {
                 "fs_normal"
             };
 
+            let vertex = if mode.blit {
+                wgpu::VertexState {
+                    module: &stat.shader,
+                    entry_point: Some("vs_blit"),
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                }
+            } else {
+                wgpu::VertexState {
+                    module: &stat.shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[Vertex::desc(), TexCoord::desc()],
+                    compilation_options: Default::default(),
+                }
+            };
+
             stat.device
                 .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                     label: Some("Render Pipeline"),
@@ -229,12 +246,7 @@ impl RendererCache {
                     } else {
                         &stat.pipeline_layout
                     }),
-                    vertex: wgpu::VertexState {
-                        module: &stat.shader,
-                        entry_point: Some("vs_main"),
-                        buffers: &[Vertex::desc(), TexCoord::desc()],
-                        compilation_options: Default::default(),
-                    },
+                    vertex,
                     fragment: Some(wgpu::FragmentState {
                         module: &stat.shader,
                         entry_point: Some(fs_entry),
@@ -682,43 +694,10 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
                 usage: wgpu::BufferUsages::INDEX,
             });
 
-        let artmesh_buffer = self.stat.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("ArtMesh Uniform Buffer"),
-            size: (ARTMESH_UNIFORM_STRIDE.get() * m.artmeshes().count()) as u64,
-            mapped_at_creation: false,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-
-        let uniform_bind_group = self
-            .stat
-            .device
-            .create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &self.stat.uniform_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: self.global_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                            buffer: &artmesh_buffer,
-                            offset: 0,
-                            size: Some(
-                                (core::mem::size_of::<ArtMeshUniform>() as u64)
-                                    .try_into()
-                                    .unwrap(),
-                            ),
-                        }),
-                    },
-                ],
-                label: Some("uniform_bind_group"),
-            });
-
         let mut artmesh_data = HashMap::new();
         let mut clip_map = HashMap::new();
         let mut clip_sets = Vec::new();
-        let mut uniform_offset: usize = 0;
+        let mut uniform_offset: usize = ARTMESH_UNIFORM_STRIDE.get();
         for artmesh in m.artmeshes() {
             let clips: Vec<_> = artmesh.clips().into_iter().map(|c| c.uid()).collect();
             let clip_set = if clips.is_empty() {
@@ -755,6 +734,39 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
             );
             uniform_offset += ARTMESH_UNIFORM_STRIDE.get();
         }
+
+        let artmesh_buffer = self.stat.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("ArtMesh Uniform Buffer"),
+            size: uniform_offset as u64,
+            mapped_at_creation: false,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let uniform_bind_group = self
+            .stat
+            .device
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &self.stat.uniform_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: self.global_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: &artmesh_buffer,
+                            offset: 0,
+                            size: Some(
+                                (core::mem::size_of::<ArtMeshUniform>() as u64)
+                                    .try_into()
+                                    .unwrap(),
+                            ),
+                        }),
+                    },
+                ],
+                label: Some("uniform_bind_group"),
+            });
 
         info!("Number of distinct clipping masks: {}", clip_sets.len());
 
@@ -881,6 +893,18 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
                 md.artmesh_buffer.size().try_into().unwrap(),
             )
             .unwrap();
+
+        // Uniform set for plain blit (top-level)
+        am_buf_view
+            .slice(0..core::mem::size_of::<ArtMeshUniform>())
+            .copy_from_slice(bytemuck::cast_slice(&[ArtMeshUniform {
+                multiply_color: Vec3::ONE,
+                screen_color: Vec3::ZERO,
+                opacity: 1.0,
+                mask_invert: 0,
+                linear_to_srgb: 0,
+                ..Default::default()
+            }]));
 
         // ==== Record which masks have changed
 
@@ -1091,6 +1115,7 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
                 blend_mode: artmesh.blend_config().simple().unwrap_or(BlendMode::Normal),
                 cull: artmesh.culling(),
                 mask: am_data.clip_set.is_some(),
+                blit: false,
             };
             let mut cache = self.cache.borrow_mut();
             let pipeline = cache.render_pipeline(&self.stat, mode);
