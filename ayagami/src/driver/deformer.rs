@@ -40,8 +40,7 @@ impl RotFormVals {
                 opacity: f.opacity(),
                 multiply_color: f.multiply_color().into(),
                 screen_color: f.screen_color().into(),
-            }
-            .saturate(),
+            },
             scale: f.scale(),
             angle: f.angle(),
             pos: f.position(),
@@ -62,8 +61,7 @@ impl WarpFormVals {
                 opacity: f.opacity(),
                 multiply_color: f.multiply_color().into(),
                 screen_color: f.screen_color().into(),
-            }
-            .saturate(),
+            },
         }
     }
 }
@@ -82,8 +80,7 @@ impl ArtMeshFormVals {
                 opacity: f.opacity(),
                 multiply_color: f.multiply_color().into(),
                 screen_color: f.screen_color().into(),
-            }
-            .saturate(),
+            },
             depth: f.depth(),
         }
     }
