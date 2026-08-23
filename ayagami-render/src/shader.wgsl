@@ -79,14 +79,14 @@ fn gamma_from_linear_rgba(linear_rgba: vec4<f32>) -> vec4<f32> {
 
 fn artmesh_color(tex_coords: vec2<f32>) -> vec4<f32> {
     var p = textureSample(t_model, s_model, tex_coords);
+    if (u_global.srgb != 0) {
+        p = gamma_from_linear_rgba(p);
+    }
+    var a = p.a;
     var rgb = p.rgb;
     rgb *= u_artmesh.multiply_color;
-    rgb += u_artmesh.screen_color * p.a;
-    if (u_global.srgb != 0) {
-        return gamma_from_linear_rgba(saturate(vec4(rgb, p.a)));
-    } else {
-        return saturate(vec4(rgb, p.a));
-    }
+    rgb = (a - (a - rgb) * (1 - u_artmesh.screen_color));
+    return saturate(vec4(rgb, p.a));
 }
 
 fn mask_value(pos: vec2<f32>) -> f32 {
