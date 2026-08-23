@@ -52,7 +52,7 @@ The code is messy; I'm releasing this early to get feedback on the API and start
 * [ ] C compatible API
 * [ ] Embeddable web component
 * [ ] Mesh deform acceleration via GPU compute
-* [ ] SDK 5.3 features (advanced blend & off screen rendering) - need a test model!
+* [x] SDK 5.3 features (advanced blend & off screen rendering)
 * [ ] Position tracking helper features (for object pinning etc.)
 * [ ] Conservative, fast bounding box calculations
 * [ ] Optimized clipping masks
