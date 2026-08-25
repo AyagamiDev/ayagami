@@ -346,11 +346,11 @@ impl ParsedModel {
 
         let new_count = self.multiply_color.count + count as usize;
 
-        self.multiply_color.count = new_count;
+        self.multiply_color.raw_count = new_count;
         self.multiply_color.r.resize(new_count, 1.0);
         self.multiply_color.g.resize(new_count, 1.0);
         self.multiply_color.b.resize(new_count, 1.0);
-        self.screen_color.count = new_count;
+        self.screen_color.raw_count = new_count;
         self.screen_color.r.resize(new_count, 0.0);
         self.screen_color.g.resize(new_count, 0.0);
         self.screen_color.b.resize(new_count, 0.0);
