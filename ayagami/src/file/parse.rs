@@ -533,6 +533,14 @@ impl ParsedModel {
             self.root_draw_group = Some(dg.idx())
         }
 
+        // Let's assert this, seems to be true in models we've seen
+        if self.root_draw_group.map(|i| i.0) != Some(0) {
+            return Err(ParseError::InvalidValue(format!(
+                "Root draw group is {:?}, expected 0",
+                self.root_draw_group
+            )));
+        }
+
         Ok(())
     }
 
