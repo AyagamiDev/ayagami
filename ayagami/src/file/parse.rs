@@ -429,14 +429,29 @@ impl ParsedModel {
                 .i_screen_color
                 .resize(self.rot_form.raw_count, IScreenColor(0));
 
+            // Check for clean error ret if these refs are broken
+            ArtMeshFields::validate_arrayref(
+                &self.art_mesh.i_forms,
+                &self.art_mesh.cnt_forms,
+                "ArtMesh.forms",
+                &self,
+            )?;
             for i in 0..self.art_mesh.raw_count {
                 let form = self.art_mesh.i_forms[i].0;
                 let color = self.art_mesh.i_color_forms[i];
                 for j in 0..self.art_mesh.cnt_forms[i] {
-                    self.art_mesh_form.i_multiply_color[(form + j) as usize] = IMultiplyColor(color + j);
-                    self.art_mesh_form.i_screen_color[(form + j) as usize] = IScreenColor(color + j);
+                    self.art_mesh_form.i_multiply_color[(form + j) as usize] =
+                        IMultiplyColor(color + j);
+                    self.art_mesh_form.i_screen_color[(form + j) as usize] =
+                        IScreenColor(color + j);
                 }
             }
+            RotDeformerFields::validate_arrayref(
+                &self.rot_deformer.i_forms,
+                &self.rot_deformer.cnt_forms,
+                "RotDeformer.forms",
+                &self,
+            )?;
             for i in 0..self.rot_deformer.raw_count {
                 let form = self.rot_deformer.i_forms[i].0;
                 let color = self.rot_deformer.i_color_forms[i];
@@ -445,11 +460,18 @@ impl ParsedModel {
                     self.rot_form.i_screen_color[(form + j) as usize] = IScreenColor(color + j);
                 }
             }
+            WarpDeformerFields::validate_arrayref(
+                &self.warp_deformer.i_forms,
+                &self.warp_deformer.cnt_forms,
+                "WarpDeformer.forms",
+                &self,
+            )?;
             for i in 0..self.warp_deformer.raw_count {
                 let form = self.warp_deformer.i_forms[i].0;
                 let color = self.warp_deformer.i_color_forms[i];
                 for j in 0..self.warp_deformer.cnt_forms[i] {
-                    self.warp_form.i_multiply_color[(form + j) as usize] = IMultiplyColor(color + j);
+                    self.warp_form.i_multiply_color[(form + j) as usize] =
+                        IMultiplyColor(color + j);
                     self.warp_form.i_screen_color[(form + j) as usize] = IScreenColor(color + j);
                 }
             }
