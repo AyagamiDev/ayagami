@@ -7,18 +7,40 @@ If you have done any of the following at any point, you may not contribute to th
 * Disassembled, decompiled, or otherwise directly inspected any binary software distributed by Live2D Inc., or any application incorporating such components (e.g. VTube Studio)
     * Exception: Incidental exposure due to debugging unrelated issues (e.g. you saw a VTube Studio stack trace or context disasm due to a crash report or while developing Wine/Proton, not involving the Live2D components)
 * Obtained any non-public code or software by Live2D Inc., including any "leaked" code or software, or code or software transferred as part of a non-public contract or agreement (this includes binary and source forms), even if you did not analyze/read it
-* Read any portion of the code of any other project involving Live2D reverse engineering (including both MOC3 and CMO3 files)
+* Read any portion of the code of any other project involving Live2D reverse engineering (including both MOC3 and CMO3 files), unless explicitly approved by the Ayagami project maintainers
 * Pirated any software by Live2D Inc or otherwise engaged in gross copyright or license violation
 
-If you have done any of the following at any point, you may open bug reports against the project, but we ask that you refrain from making direct code contributions or participating in reverse engineering discussions:
+If you have done any of the following at any point, you may open bug reports against the project, but we ask that you refrain from participating in reverse engineering discussions or making code contributions that could cause a copyright conflict:
 
 * Read any source code (including header files, source code, shaders, etc.) or other information distributed by Live2D as part of a publicly available SDK under a license that is not [OSI Approved](https://opensource.org/licenses). Note that the code that Live2D distributes on their GitHub repositories is, in general, NOT distributed under an OSI approved open source license.
 * Entered into a licensing agreement with Live2D Inc to use their technology in a project (when using their public SDK, not any nonpublic components)
 
+If you fall in the above categories, please see the requirements in the next section.
+
 The following are permitted:
 
 * Reading documentation on Live2D's website that is not subject to a license agreement (accessible publicly with no click-through or clearly declared license/TOS)
-    * Although not banned, please avoid looking up Live2D SDK documentation if possible. We are not interested in cloning the SDK or its API as part of the core Ayagami project. (Editor documentation is OK)
+    * Although not banned, please avoid referencing Live2D SDK API documentation if possible. We are not interested in cloning the SDK or its API as part of the core Ayagami project. (Editor documentation is OK)
+
+### Former or current users of the Live2D SDK
+
+If you are currently using or have previously used the Live2D Cubism SDK (in any of its variants), you may not reference the SDK while making contributions. Contributions to the following areas of the project are not permitted:
+
+* The model data model (`ayagami::core`)
+* The binary MOC3 file format code (`ayagami::file`)
+* The algorithms in the driver code (`ayagami::driver`) (changes that do not modify or correct core behavior are OK)
+* The core simulation algorithms in the physics engine (`ayagami::physics`) (contributions not affecting the core physics behavior are OK)
+* The rendering behavior in the reference renderer (`ayagami_render`), including shader behavior
+
+The following are some examples of acceptable contributions:
+
+* Build system, CI, and related changes
+* Adding or adjusting `ayagami::driver` APIs for more flexibility/control or to expose more state data
+* Adding or adjusting `ayagami::physics` APIs to allow greater control over the (existing) simulation
+* Changes to `ayagami-demo`, or the `meta`, `pose`, and `collections` modules in `ayagami`
+* Changes to `ayagami-render` related to GPU API usage or compatibility, integration options for users, and bona fide optimization
+
+In all cases, you **MUST** disclose your exposure to the Live2D SDK to the project maintainers, in either your PR or in private communication. The project authors reserve the right to reject any PR from users of the Live2D SDK on legal/copyright safety grounds.
 
 ### Usage of Live2D Cubism Editor and other Live2D software
 
