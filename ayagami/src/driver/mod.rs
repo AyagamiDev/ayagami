@@ -1461,7 +1461,7 @@ impl<T: Model> Driver<T> {
     pub fn draw_nodes(&self, part_uid: Option<T::Uid>) -> Option<&[DrawNode<T::Uid>]> {
         match part_uid {
             Some(uid) => self.part_drawnodes.get(&uid).map(|v| &**v),
-            None => Some(&self.root_drawnodes)
+            None => Some(&self.root_drawnodes),
         }
     }
 }
