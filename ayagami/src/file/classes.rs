@@ -478,11 +478,7 @@ declare_object!(ScreenColor {
         b: f32,
     }
 });
-impl_validator!(ScreenColor, |&self| {
-    check!(*self.f_r() >= 0. && *self.f_r() <= 1.);
-    check!(*self.f_g() >= 0. && *self.f_g() <= 1.);
-    check!(*self.f_b() >= 0. && *self.f_b() <= 1.);
-});
+impl_validator!(ScreenColor);
 
 declare_object!(BlendParamMap {
     V4_2 {
