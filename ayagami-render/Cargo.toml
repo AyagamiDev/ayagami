@@ -12,7 +12,7 @@ bytemuck = { version = "1.24", features = [ "derive" ] }
 env_logger = "0.10"
 log = "0.4"
 pollster = "0.3"
-wgpu = "29.0"
+wgpu = "30.0"
 winit = { version = "0.30", features = ["android-native-activity"] }
 ayagami = { path = "../ayagami" }
 glam = { version = "0.33.1", features = ["bytemuck"] }

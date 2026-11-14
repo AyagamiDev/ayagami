@@ -255,7 +255,7 @@ impl RendererCache {
                 wgpu::VertexState {
                     module: &stat.shader,
                     entry_point: Some("vs_main"),
-                    buffers: &[Vertex::desc(), TexCoord::desc()],
+                    buffers: &[Some(Vertex::desc()), Some(TexCoord::desc())],
                     compilation_options: Default::default(),
                 }
             };
@@ -638,7 +638,7 @@ impl<T: Model, R: AsRef<T>> ModelRenderer<T, R> {
             vertex: wgpu::VertexState {
                 module: shader,
                 entry_point: Some("vs_main"),
-                buffers: &[Vertex::desc(), TexCoord::desc()],
+                buffers: &[Some(Vertex::desc()), Some(TexCoord::desc())],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
