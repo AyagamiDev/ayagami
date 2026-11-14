@@ -1,7 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     f64::consts::PI,
-    io::{Cursor, Read, Seek},
+    io::{Read, Seek},
     sync::{Arc, Mutex},
 };
 
@@ -373,7 +373,7 @@ impl AyagamiTestApp {
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
         ui.add_space(8.0);
 
-        egui::widgets::global_theme_preference_switch(ui);
+        egui::widgets::global_theme_preference_buttons(ui);
 
         ui.separator();
         ui.label("Ayagami Model Poser");
@@ -721,29 +721,18 @@ impl eframe::App for AyagamiTestApp {
 
         ui.input_mut(|inp| {
             if let Some(f) = inp.raw.dropped_files.pop() {
-                if let Some(p) = f.path {
-                    info!("File dropped (path: {})", p.to_string_lossy());
-                    let Ok(zipf) = File::open(&p) else {
-                        error!("Failed to open file {}", p.to_string_lossy());
-                        return;
-                    };
-                    let Ok(archive) = zip::ZipArchive::new(zipf) else {
-                        error!("Failed to parse zip file");
-                        return;
-                    };
-                    if let Err(e) = self.load_model(archive) {
-                        error!("Failed to load model: {:?}", e);
-                    }
-                } else if let Some(b) = f.bytes {
-                    info!("File dropped ({} bytes)", b.len());
-                    let c = Cursor::new(b);
-                    let Ok(archive) = zip::ZipArchive::new(c) else {
-                        error!("Failed to parse zip file");
-                        return;
-                    };
-                    if let Err(e) = self.load_model(archive) {
-                        error!("Failed to load model: {:?}", e);
-                    }
+                let p = f.path();
+                info!("File dropped (path: {})", p.to_string_lossy());
+                let Ok(zipf) = File::open(p) else {
+                    error!("Failed to open file {}", p.to_string_lossy());
+                    return;
+                };
+                let Ok(archive) = zip::ZipArchive::new(zipf) else {
+                    error!("Failed to parse zip file");
+                    return;
+                };
+                if let Err(e) = self.load_model(archive) {
+                    error!("Failed to load model: {:?}", e);
                 }
                 inp.raw.dropped_files.clear();
             }
